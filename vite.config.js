@@ -146,6 +146,10 @@ export default async ({ mode }) => {
       ? `${process.env.VITE_URL_API}${process.env.VITE_PATH_FILES || "/file"}`
       : (process.env.VITE_URL_FILES ?? "");
 
+    // O catálogo aponta a mídia para a API ou direto para o armazenamento: as
+    // duas origens são o mesmo acervo e caem nas mesmas rotas de cache.
+    const mediaOrigins = [filesUrl, ...DOMAINS.FILES].map(escapeRegex).join("|");
+
     // Runtime caching: DB JSONs (stale-while-revalidate) + mídia (cache-first 30 dias).
     // Quando VITE_URL_* está definido, usa padrão preciso de URL; caso contrário, cai
     // em padrão por extensão (amplo mas seguro para este app de apresentação).
@@ -177,10 +181,7 @@ export default async ({ mode }) => {
       // Android não consegue tocar nem pular dentro do áudio offline.
       {
         urlPattern: filesUrl
-          ? new RegExp(
-              `^${escapeRegex(filesUrl)}.*\\.(mp3|ogg|opus|m4a|aac|wav|flac)(\\?.*)?$`,
-              "i"
-            )
+          ? new RegExp(`^(?:${mediaOrigins}).*\\.(mp3|ogg|opus|m4a|aac|wav|flac)(\\?.*)?$`, "i")
           : /\.(mp3|ogg|opus|m4a|aac|wav|flac)(\?.*)?$/i,
         handler: "CacheFirst",
         options: {
@@ -193,7 +194,7 @@ export default async ({ mode }) => {
       // Imagens externas — cache-first (sem expiração, pelo mesmo motivo do áudio)
       {
         urlPattern: filesUrl
-          ? new RegExp(`^${escapeRegex(filesUrl)}.*\\.(jpg|jpeg|png|webp|gif)(\\?.*)?$`, "i")
+          ? new RegExp(`^(?:${mediaOrigins}).*\\.(jpg|jpeg|png|webp|gif)(\\?.*)?$`, "i")
           : /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i,
         handler: "CacheFirst",
         options: {

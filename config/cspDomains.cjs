@@ -27,6 +27,12 @@ const DOMAINS = {
     "https://api.louvorja.workers.dev",
     "https://api.louvorja.com.br"
   ],
+  // Armazenamento dos arquivos de mídia. O catálogo pode apontar capa e áudio
+  // direto para cá, sem passar pela API: cada arquivo servido por ela conta na
+  // cota diária de requisições.
+  FILES: [
+    "https://files.louvorja.com.br"
+  ],
   CDN: [
     "https://cdn.jsdelivr.net",
     "https://static.cloudflareinsights.com"
@@ -80,6 +86,7 @@ const DOMAINS = {
 };
 
 const api = DOMAINS.API.join(" ");
+const files = DOMAINS.FILES.join(" ");
 const cdn = DOMAINS.CDN.join(" ");
 const google = DOMAINS.GOOGLE.join(" ");
 const youtube = DOMAINS.YOUTUBE.join(" ");
@@ -99,9 +106,11 @@ const DOMAINS_CSP = {
   // navegador barrava a capa e o áudio enquanto o `fetch` da mesma origem
   // passava — o operador via "Ocorreu um erro ao carregar este áudio". Só o
   // desktop escapava, porque lá o CSP libera `https:` inteiro.
-  IMG: `${api} ${youtube} ${contributorImages} ${canva}`,
-  MEDIA: `${api} ${youtube}`,
-  CONNECT: `${api} ${thirdParty}`,
+  // O armazenamento entra nos mesmos três: o download para uso offline no
+  // web/PWA é um `fetch`, e a capa e o áudio tocam direto de lá.
+  IMG: `${api} ${files} ${youtube} ${contributorImages} ${canva}`,
+  MEDIA: `${api} ${files} ${youtube}`,
+  CONNECT: `${api} ${files} ${thirdParty}`,
   WORKER: `data:`,
   FRAME: `${youtube} ${vlibras}`,
 };
