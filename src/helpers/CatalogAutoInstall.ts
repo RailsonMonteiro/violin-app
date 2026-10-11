@@ -1,7 +1,7 @@
 /**
  * CatalogAutoInstall.ts — Quando o catálogo desce sozinho, sem o operador pedir.
  *
- * O catálogo é um ZIP de ~30MB. Só o app instalado o baixa por conta própria:
+ * O catálogo é um ZIP de ~4MB, sem capítulos bíblicos. Só o app instalado o baixa por conta própria:
  * quem abre o endereço numa aba comum, às vezes no pacote de dados, não leva
  * esse download sem ter pedido — para ele continua valendo abrir Sincronizar.
  *

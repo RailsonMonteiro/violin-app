@@ -434,87 +434,56 @@ Toda resposta 200 é injetada automaticamente no IDB via `writeRouted`.
   A tela **Opções → Atualizações** expõe os dois botões de limpeza.
   Em **Sincronizar → Armazenamento** fica o botão **Restaurar banco de dados**
   (`BundleInstaller.install({ force: true })`: baixa ZIP da API, extrai JSONs,
-  limpa 14 tabelas de catálogo e injeta dados novos).
+  publica os datasets e o marcador em uma transação IndexedDB).
 
-#### Bundle do banco de dados (`BundleInstaller.ts`)
+#### Pacotes de catálogo e Bíblia
 
-O app pode baixar todos os dados de catálogo de uma vez via bundle ZIP
-(`/db/bundle` da API), sem necessidade de fetch incremental por arquivo.
-O bundle contém 14 tabelas de catálogo (cache, musics, hymnal, hymnal_1996,
-albums, music_categories, doxology_albums, children_albums, online_videos,
-online_videos_channels, online_videos_playlists, bible_versions, bible_books,
-bible_chapters).
+`BundleInstaller.ts` usa `/db/catalog-bundle` para instalação inicial e atualização
+do catálogo (~4 MB, sem capítulos) e mantém `/db/bundle` para restauração completa.
+O pacote completo contém as tabelas de catálogo e os capítulos bíblicos.
+`BibleBundleInstaller.ts` usa `/db/bible-bundle` sob demanda nas telas bíblicas.
+As três rotas são distintas; o nome interno do objeto R2 não é um contrato do app.
 
-**Fluxo:**
-1. `fetchBundle(signal)` — baixa o ZIP com headers de autenticação.
-2. `extractBundle(buffer, onProgress, signal)` — extrai JSONs via JSZip, mapeia
-   caminhos para chaves lógicas do banco.
-3. Valida `config` e prepara as linhas roteadas com pontos cooperativos de
-   cancelamento. Nenhuma tabela é limpa durante a preparação.
-4. `$database.seedBundleAtomic()` aplica somente as chaves/prefixos presentes
-   no ZIP e grava o marcador na mesma transação IndexedDB. Falha ou cancelamento
-   reverte a transação; o catálogo anterior continua disponível.
+Cada ZIP contém `_bundle_manifest.json` com `schema_version: 1`, `kind`
+(`catalog`, `full` ou `bible`) e a lista exata de arquivos com tamanho em bytes e
+SHA-256. O gerador da API valida referências e todos os capítulos esperados a
+partir das versões e livros antes de publicar. O Worker do app verifica CRC,
+manifesto, nomes, arquivos faltantes/extras, tipo do pacote e SHA-256 antes de
+entregar cada JSON. O manifesto não é um dataset e nunca vai para o IndexedDB.
 
-**Pontos de uso** — o boot **não** baixa nem consulta bundle: nenhum diálogo ao
-abrir o app. A web lê o catálogo de `Database.get()` sob demanda, com cache no
-IndexedDB. No desktop, quem lê o catálogo **em massa** garante o bundle antes
-(`useSyncManager.ensureCatalogBundle()`, só olha o marcador local):
-- **StartupCheckDialog** (desktop, primeiro uso) e o scan de **Sincronizar**: o
-  scan abre o JSON de cada álbum e de cada música (~67 álbuns + ~1.900 músicas em
-  PT). Sem o catálogo no disco isso seria ~2 mil GETs por instalação; com o bundle
-  custa **1 GET** de ~30 MB (a Bíblia vem junto), com barra de progresso no próprio
-  diálogo. Se o download falha, o scan automático é pulado — nunca vira milhares de
-  GETs — e só é retentado depois de 5 minutos.
-  Abrir **Sincronizar** no primeiro uso também espera o bundle antes de ler as
-  listas (catálogo, versões e capítulos da Bíblia): custa o bundle mais **uma**
-  requisição pequena, a lista de doxologia, que vem de uma rota REST fora do bundle
-  (medido no Electron, contando o processo principal: boot 0, 1ª abertura 2, 2ª
-  abertura 0). "Atualizar catálogo" é um pedido de rede de propósito e não espera.
-- **AppMenuAtualizacoes** (desktop): botão "Aplicar" baixa bundle quando há
-  versão nova; botão "Reinstalar banco" faz `force: true`.
-- **AppMenuSincronizar** (desktop): botão "Restaurar banco de dados" faz
-  `force: true` + reload da página.
+`BundleInstaller.install({ catalogOnly: true })` baixa o catálogo com `no-store`,
+usa fallback da API quando necessário e publica os datasets e o marcador na mesma
+transação IndexedDB. A versão vem do `config` validado dentro do ZIP; versão
+ausente ou diferente da solicitada rejeita a instalação. Erro ou cancelamento
+preserva o catálogo anterior. A restauração manual usa o pacote completo.
 
-`install()` sem `version` grava no marcador a versão do `config` que já vem dentro
-do ZIP; só consulta a API se o ZIP não a trouxer. Dois downloads nunca correm em
-paralelo: o bundle geral contém a Bíblia (quem pede a Bíblia o aproveita), mas o
-bundle da Bíblia não contém o catálogo (quem pede o catálogo espera e baixa o seu).
+O marcador registra o tipo e a revisão de validação. Um catálogo instalado não
+significa Bíblia instalada; apenas um marcador completo validado pode satisfazer
+as duas verificações. Marcadores anteriores à validação deixam os dados salvos
+legíveis, mas exigem nova instalação verificada na próxima solicitação do pacote.
+O marcador bíblico usa revisão 2 e só é gravado após todos os capítulos.
 
-O bundle substitui o antigo seed inicial de JSONs empacotados: `BundleInstaller.ts`
-baixa `/db/bundle`, extrai os JSONs e publica o catálogo via transação IndexedDB.
+**Pontos de uso:**
 
-#### Bundle da Bíblia (`BibleBundleInstaller.ts`)
+- PWA instalado: pode garantir o catálogo após oito segundos, online, sem economia
+  de dados e fora de redes 2G. Aba comum não faz esse download automático.
+- Desktop: Verificação Inicial e Sincronizar garantem o catálogo antes de leituras
+  em massa, com progresso na própria tela. Esse download não traz capítulos.
+- Aplicar atualização do catálogo usa o pacote menor. Reinstalar/restaurar o banco
+  explicitamente usa o pacote completo.
+- Bíblia e Busca Bíblica compartilham um download do pacote bíblico quando faltam
+  seus capítulos. O catálogo menor não satisfaz essa solicitação.
 
-A Bíblia são ~15 mil capítulos (13 versões × 1.189). Buscá-los um a um custava até
-~1.200 requisições por versão à API; por isso ela tem um ZIP próprio, `/db/bible-bundle`
-(~25 MB medido em produção, gerado pelo `ingest` da API a partir do bundle da origem), baixado **uma vez**.
+Os downloads são serializados e solicitações iguais compartilham a promessa.
+Um pacote completo em andamento pode atender catálogo e Bíblia; qualquer outro
+par diferente espera e depois baixa seu pacote. Falhas automáticas têm cooldown
+local de cinco minutos. Cancelamento não inicia uma tentativa no fallback.
 
-- **Quando baixa**: só ao abrir a Bíblia ou a Busca Bíblica, ou ao mandar baixar
-  versões (StartupCheckDialog, Sincronizar). Nunca no boot. O progresso aparece
-  dentro da própria tela (`useSyncManager.bundleInstalling` / `bundlePercent`) e
-  **não bloqueia**: a Bíblia abre o catálogo e os capítulos pedidos pela rede
-  enquanto o ZIP baixa; a Busca Bíblica monta na hora e só a pesquisa espera.
-- **Como decide**: `useSyncManager.ensureBibleBundle()` olha só o marcador local
-  (`__bible_bundle_marker__`, com uma `BUNDLE_REVISION` do app) — nenhuma
-  requisição. O banco completo já instalado também vale, pois traz os capítulos.
-  Não acompanha a versão remota do catálogo: o texto bíblico não muda com as
-  atualizações de músicas. Para forçar um novo download, suba `BUNDLE_REVISION`.
-- **Compartilhado**: várias telas abrindo juntas dividem um único download; uma
-  falha só é retentada depois de 5 minutos.
-- **Instalação**: capítulo a capítulo (`$database.seed`), sem segurar tudo em
-  memória; o marcador é gravado por último, então uma queda no meio recomeça.
-- **Telas em sincronia**: `useSyncManager.bibleRevision` sobe sempre que o conteúdo
-  bíblico local muda (bundle instalado, versões baixadas ou removidas). A tela da
-  Bíblia (marcador "↓" das versões) e a aba Bíblia de Sincronizar releem quando ele
-  muda; sem isso ficavam com a foto de quando abriram.
-- **Progresso**: `bundlePercentOf()` dá um percentual único, com um trecho por fase
-  (baixar 0–70, extrair 70–80, gravar 80–100), usado em todas as telas e na lista de
-  tarefas. Cada fase calculada sozinha voltava a 0% e as telas a desenhavam como
-  "indeterminada". Só existe uma barra por espera: em Sincronizar, o bloco de
-  carregamento da lista mostra a barra do bundle em vez de somar uma segunda.
-- **Reserva**: se o bundle não está disponível (offline, ou a API ainda não o
-  publicou), os capítulos continuam vindo por `Database.get()`, como antes.
-- **Busca por palavra** nunca vai à rede: pesquisa só o que já está no IndexedDB.
+A Bíblia é escrita capítulo a capítulo para limitar memória; uma interrupção
+mantém os capítulos já escritos e não grava o marcador. A próxima solicitação
+recomeça. Falta do ZIP preserva o fallback de capítulos via `Database.get()`.
+`bibleRevision` é incrementada quando capítulos mudam, sem confundir instalação
+do catálogo com instalação de Bíblia. Busca por palavra usa somente o IndexedDB.
 
 **Versões da Bíblia "baixadas"** (`helpers/BibleDownloads.ts`): detecção
 unificada por união — capítulos completos no IDB (`bible_chapters`) ∪ cache

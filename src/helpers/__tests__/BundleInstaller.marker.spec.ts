@@ -38,7 +38,10 @@ describe("BundleInstaller.hasBundleMarker", () => {
   });
 
   it("é verdadeiro quando o marcador de instalação concluída existe", async () => {
-    rows.set("__bundle_marker__", { id: "__bundle_marker__", data: { version_number: 185 } });
+    rows.set("__bundle_marker__", {
+      id: "__bundle_marker__",
+      data: { version_number: 185, kind: "full", validation_revision: 1 },
+    });
 
     expect(await BundleInstaller.hasBundleMarker()).toBe(true);
   });
@@ -46,4 +49,14 @@ describe("BundleInstaller.hasBundleMarker", () => {
   it("é falso sem nada gravado", async () => {
     expect(await BundleInstaller.hasBundleMarker()).toBe(false);
   });
+});
+
+it("não confia em marcador antigo nem usa catálogo como Bíblia completa", async () => {
+  rows.set("__bundle_marker__", { data: { version_number: 185 } });
+  expect(await BundleInstaller.hasBundleMarker()).toBe(false);
+  rows.set("__bundle_marker__", {
+    data: { version_number: 185, kind: "catalog", validation_revision: 1 },
+  });
+  expect(await BundleInstaller.hasBundleMarker()).toBe(true);
+  expect(await BundleInstaller.hasBundleMarker("full")).toBe(false);
 });

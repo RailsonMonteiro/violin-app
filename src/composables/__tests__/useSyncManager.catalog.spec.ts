@@ -211,7 +211,7 @@ describe("bundle da Bíblia e bundle geral em andamento", () => {
 
     const ensuringBible = sync.ensureBibleBundle();
     await vi.waitFor(() => expect(h.events).toContain("bible:start"));
-    const ensuringCatalog = sync.ensureCatalogBundle();
+    const ensuringCatalog = sync.downloadBundle();
     await new Promise((r) => setTimeout(r, 10));
     expect(h.fullInstall).not.toHaveBeenCalled();
 
@@ -232,7 +232,7 @@ describe("bundle da Bíblia e bundle geral em andamento", () => {
     });
     const sync = await mountSync();
 
-    const ensuringCatalog = sync.ensureCatalogBundle();
+    const ensuringCatalog = sync.downloadBundle();
     await vi.waitFor(() => expect(h.events).toContain("bundle:start"));
     const ensuringBible = sync.ensureBibleBundle();
     full.resolve();
@@ -246,7 +246,7 @@ describe("bundle da Bíblia e bundle geral em andamento", () => {
   it("depois do bundle geral a Bíblia não baixa mais nada", async () => {
     const sync = await mountSync();
 
-    await sync.ensureCatalogBundle();
+    await sync.downloadBundle();
     h.bibleIsInstalled.mockClear();
 
     expect(await sync.ensureBibleBundle()).toBe(true);
@@ -323,4 +323,28 @@ describe("abrir o Sincronizar (desktop, primeiro uso)", () => {
 
     expect(h.fullInstall).not.toHaveBeenCalled();
   });
+});
+
+it("catálogo menor não marca Bíblia instalada e mantém o download bíblico independente", async () => {
+  const sync = await mountSync();
+  await sync.ensureCatalogBundle();
+  expect(h.fullInstall).toHaveBeenCalledWith(expect.objectContaining({ catalogOnly: true }));
+  expect(h.bibleInstall).not.toHaveBeenCalled();
+  await sync.ensureBibleBundle();
+  expect(h.bibleInstall).toHaveBeenCalledTimes(1);
+});
+
+it("pedido bíblico espera o catálogo em andamento e depois baixa seus capítulos", async () => {
+  const pending = deferred();
+  h.fullInstall.mockImplementation(() => pending.promise);
+  const sync = await mountSync();
+  const catalog = sync.ensureCatalogBundle();
+  await vi.waitFor(() => expect(h.fullInstall).toHaveBeenCalledTimes(1));
+  const bible = sync.ensureBibleBundle();
+  await Promise.resolve();
+  expect(h.bibleInstall).not.toHaveBeenCalled();
+  pending.resolve();
+  expect(await catalog).toBe(true);
+  expect(await bible).toBe(true);
+  expect(h.bibleInstall).toHaveBeenCalledTimes(1);
 });

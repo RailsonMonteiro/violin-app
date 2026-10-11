@@ -123,7 +123,7 @@ const bundleInstalling = ref(false);
 const bundleProgress = ref<BundleProgress>({ phase: "download", current: 0, total: 0 });
 let activeBundleDownload: Promise<boolean> | null = null;
 // O bundle geral já contém a Bíblia; o bundle bíblico não contém o catálogo.
-let activeBundleKind: "full" | "bible" | null = null;
+let activeBundleKind: "full" | "catalog" | "bible" | null = null;
 let activeBundleAbort: AbortController | null = null;
 let bundleReady = false;
 let bundleEnsurePromise: Promise<boolean> | null = null;
@@ -1057,9 +1057,9 @@ export function useSyncManager() {
   // ─── Bundle Download ────────────────────────────────────────
 
   async function downloadBundle(
-    opts: { force?: boolean; version?: number; bibleOnly?: boolean } = {}
+    opts: { force?: boolean; version?: number; bibleOnly?: boolean; catalogOnly?: boolean } = {}
   ): Promise<boolean> {
-    const kind = opts.bibleOnly ? "bible" : "full";
+    const kind = opts.bibleOnly ? "bible" : opts.catalogOnly ? "catalog" : "full";
     while (activeBundleDownload) {
       if (activeBundleKind === "full" || activeBundleKind === kind) return activeBundleDownload;
       // Quem pediu o banco completo não pode se dar por satisfeito com o
@@ -1080,7 +1080,7 @@ export function useSyncManager() {
   }
 
   async function downloadBundleInternal(
-    opts: { force?: boolean; version?: number; bibleOnly?: boolean } = {}
+    opts: { force?: boolean; version?: number; bibleOnly?: boolean; catalogOnly?: boolean } = {}
   ): Promise<boolean> {
     if (bundleInstalling.value) return false;
 
@@ -1104,6 +1104,7 @@ export function useSyncManager() {
       const installer = opts.bibleOnly ? BibleBundleInstaller : BundleInstaller;
       await installer.install({
         force: opts.force,
+        catalogOnly: opts.catalogOnly,
         version: opts.version,
         signal,
         onProgress: (p: BundleProgress) => {
@@ -1129,9 +1130,11 @@ export function useSyncManager() {
       });
 
       bgTasks.completeTask(taskId);
-      bundleReady = true;
+      if (!opts.catalogOnly) {
+        bundleReady = true;
+        bumpBibleRevision();
+      }
       if (!opts.bibleOnly) catalogReady = true;
-      bumpBibleRevision();
       return true;
     } catch (e) {
       if (signal.aborted) {
@@ -1196,7 +1199,7 @@ export function useSyncManager() {
    * Garante o catálogo (álbuns, músicas, hinário…) local antes de uma leitura
    * em massa. O scan da Verificação Inicial abre o JSON de cada álbum e de cada
    * música — ~2 mil requisições por instalação se o catálogo não estiver no
-   * disco. O bundle geral traz tudo (e a Bíblia junto) em um único GET.
+   * disco. O pacote de catálogo traz esses dados, sem capítulos bíblicos, em um único GET.
    */
   async function ensureCatalogBundle(): Promise<boolean> {
     if (catalogReady) return true;
@@ -1206,10 +1209,9 @@ export function useSyncManager() {
     const pending = (async (): Promise<boolean> => {
       if (await BundleInstaller.hasBundleMarker()) {
         catalogReady = true;
-        bundleReady = true;
         return true;
       }
-      const installed = await downloadBundle();
+      const installed = await downloadBundle({ catalogOnly: true });
       if (!installed) catalogFailedAt = Date.now();
       return installed;
     })();
@@ -1232,7 +1234,6 @@ export function useSyncManager() {
     if (catalogReady) return true;
     if (!(await BundleInstaller.hasBundleMarker())) return false;
     catalogReady = true;
-    bundleReady = true;
     return true;
   }
 

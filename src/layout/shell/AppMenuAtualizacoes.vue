@@ -620,7 +620,7 @@ async function checkDbUpdate(): Promise<void> {
 
 async function applyDbUpdate(): Promise<void> {
   if (isDesktop.value) {
-    const ok = await sync.downloadBundle();
+    const ok = await sync.downloadBundle({ catalogOnly: true });
     if (!ok) return;
     dbCacheCleared.value = true;
     dbCurrentConfig.value = dbLatestConfig.value;

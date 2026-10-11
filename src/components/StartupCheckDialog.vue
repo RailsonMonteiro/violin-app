@@ -621,7 +621,7 @@ async function prepareCatalog(): Promise<void> {
     view.value = "scanning";
     // Clique explícito: não aplica cooldown e permite tentar novamente logo
     // após uma falha ou cancelamento.
-    const installed = await sync.downloadBundle();
+    const installed = await sync.downloadBundle({ catalogOnly: true });
     if (!installed) {
       catalogActionFailed.value = true;
       view.value = "summary";

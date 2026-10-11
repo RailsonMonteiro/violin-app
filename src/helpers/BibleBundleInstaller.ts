@@ -11,6 +11,7 @@
 import $database from "@/helpers/Database";
 import $idb from "@/helpers/IndexedDB";
 import BundleInstaller from "@/helpers/BundleInstaller";
+import { BUNDLE_VALIDATION_REVISION } from "@/types/Bundle";
 import type { BundleProgress } from "@/types/Database";
 import { fetchWithTimeout, NET_TIMEOUT } from "@/helpers/Http";
 import { API_TOKEN, API_URL, API_URL_FALLBACK, API_URL_FALLBACK_TOKEN } from "@/config/Api";
@@ -21,7 +22,7 @@ import { extractBundleEntries } from "@/helpers/BundleExtraction";
 const MARKER_KEY = "__bible_bundle_marker__";
 
 /** Sobe quando o app precisar rebaixar a Bíblia: texto corrigido na origem ou formato novo. */
-const BUNDLE_REVISION = 1;
+const BUNDLE_REVISION = 2;
 
 interface BibleBundleMarker {
   id: string;
@@ -68,6 +69,7 @@ async function fetchBuffer(
   const response = await fetchWithTimeout(url, {
     headers: { "Api-Token": token },
     signal,
+    cache: "no-store",
     timeout: NET_TIMEOUT.MEDIA,
     source: "bible-bundle",
   });
@@ -104,13 +106,14 @@ async function fetchBibleBundle(
   onProgress?: (progress: BundleProgress) => void,
   signal?: AbortSignal
 ): Promise<ArrayBuffer> {
-  const url = `${API_URL}/db/bible-bundle`;
+  const url = `${API_URL}/db/bible-bundle?format=${BUNDLE_VALIDATION_REVISION}`;
   try {
     return await fetchBuffer(url, API_TOKEN, onProgress, signal);
   } catch (primaryError) {
+    abortCheck(signal);
     if (!API_URL_FALLBACK || API_URL_FALLBACK === API_URL) throw primaryError;
     return fetchBuffer(
-      `${API_URL_FALLBACK}/db/bible-bundle`,
+      `${API_URL_FALLBACK}/db/bible-bundle?format=${BUNDLE_VALIDATION_REVISION}`,
       API_URL_FALLBACK_TOKEN,
       onProgress,
       signal
@@ -131,7 +134,7 @@ export default {
     } catch {
       // Marcador ilegível: cai para a checagem do banco completo.
     }
-    return BundleInstaller.hasBundleMarker();
+    return BundleInstaller.hasBundleMarker("full");
   },
 
   async install({ onProgress, signal }: InstallOptions = {}): Promise<void> {
