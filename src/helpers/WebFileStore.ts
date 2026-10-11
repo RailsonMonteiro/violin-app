@@ -142,6 +142,10 @@ async function downloadOne(
         timeout: NET_TIMEOUT.MEDIA,
         source: "web-download",
         signal,
+        // O armazenamento só devolve a permissão de CORS quando o pedido leva a
+        // origem, e um <img> não leva. A capa já exibida fica guardada pelo
+        // navegador sem a permissão; reaproveitá-la aqui derruba o download.
+        cache: "no-store",
       });
       // Só 200 inteiro: um 206 gravado como arquivo completo tocaria cortado.
       if (response.status !== 200) throw new Error(`HTTP ${response.status}`);

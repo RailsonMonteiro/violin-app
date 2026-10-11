@@ -138,6 +138,14 @@ describe("WebFileStore", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("baixa sem reaproveitar a cópia que o navegador guardou ao exibir o arquivo", async () => {
+    await run([{ remote: "/covers/1.jpg" }]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      url("/covers/1.jpg"),
+      expect.objectContaining({ cache: "no-store" })
+    );
+  });
+
   it("recusa 206, conta falha e emite file-error sem gravar o arquivo", async () => {
     fetchMock.mockImplementation(async (u: string) =>
       u.endsWith("one.opus")
