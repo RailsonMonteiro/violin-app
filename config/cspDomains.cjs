@@ -31,7 +31,7 @@ const DOMAINS = {
   // direto para cá, sem passar pela API: cada arquivo servido por ela conta na
   // cota diária de requisições.
   FILES: [
-    "https://files.louvorja.com.br"
+    "https://*.louvorja.com.br"
   ],
   CDN: [
     "https://cdn.jsdelivr.net",

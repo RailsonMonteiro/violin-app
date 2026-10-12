@@ -61,9 +61,8 @@ URL resultante: `{VITE_URL_API}{VITE_PATH_FILES}`
 | Usado em    | `config/Api.ts`, `main.js`              |
 
 Token enviado como header `Api-Token` em todas as requisições ao servidor louvorja.
-Obrigatório no servidor legado (`api.louvorja.com.br`), que responde 401 sem ele.
-A API em `api.louvorja.workers.dev` é somente leitura e não exige token — o header
-é enviado assim mesmo e simplesmente ignorado.
+A API (`api.louvorja.workers.dev` e `api.louvorja.com.br`, ambas atendidas pelo mesmo Worker)
+é somente leitura e não exige token — o header é enviado assim mesmo e simplesmente ignorado.
 Em desenvolvimento com servidor local (`npm run files`), pode ser deixado vazio.
 
 ---
