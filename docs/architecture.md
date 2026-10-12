@@ -970,7 +970,7 @@ Duas fontes de vídeos YouTube projetáveis, mescladas na liturgia:
 
 ### Módulo `online_videos` (catálogo da API)
 
-- Fonte: `GET https://api.louvorja.com.br/{locale}/collections/online`
+- Fonte: `GET <API>/{locale}/collections/online`
   → `{ channels[], playlists[], videos[] }`; cada vídeo:
   `{ video_id, playlist_id, title, sequence, default_image }`.
 - **Cache**: resposta inteira gravada no IDB sob a chave

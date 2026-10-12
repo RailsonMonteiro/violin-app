@@ -13,7 +13,7 @@ describe("PostHog CSP", () => {
   // aqui, o web/PWA barra a capa, o áudio e o download para uso offline.
   it("libera o armazenamento de mídia para imagem, áudio e download", () => {
     for (const directive of [DOMAINS_CSP.IMG, DOMAINS_CSP.MEDIA, DOMAINS_CSP.CONNECT]) {
-      expect(directive).toContain("https://files.louvorja.com.br");
+      expect(directive).toContain("https://*.louvorja.com.br");
     }
   });
 
