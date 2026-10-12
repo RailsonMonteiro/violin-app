@@ -14,11 +14,22 @@
   visual — quem olha precisa saber que está carregando, não ler sobre isso.
 
   O fade é CSS (`transition: opacity`), não `win.setOpacity()`: essa API não
-  existe no Linux. Quem fecha a janela é o main, 550 ms depois do aviso —
+  existe no Linux. Quem fecha a janela é o main, um pouco depois do aviso —
   o componente só some da tela.
+
+  A duração é a mesma da Projeção de Fundo (`fade_duration`): o loader é a
+  camada de transição da projeção de Site, e site, música e vídeo entram e saem
+  com o mesmo tempo. Ele nasce transparente e só acende depois que o navegador
+  pintou o primeiro quadro — sem isso o fade de entrada não teria de onde
+  partir. Como a janela de loader é reaproveitada entre ciclos, o `pronto:
+  false` de cada ciclo novo é o que religa a entrada.
 -->
 <template>
-  <div class="site-loader" :class="{ 'site-loader--saindo': saindo }" :style="fundo">
+  <div
+    class="site-loader"
+    :class="{ 'site-loader--entrando': entrou, 'site-loader--saindo': saindo }"
+    :style="{ ...fundo, '--site-loader-fade': fadeMs + 'ms' }"
+  >
     <div class="site-loader__marca">
       <img class="site-loader__logo" :src="logoUrl" alt="" />
       <!--
@@ -32,11 +43,14 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { getSetting } from "@/helpers/SettingsStorage";
 import Telemetry from "@/helpers/Telemetry";
 import { estiloDeFundo } from "@/helpers/BackgroundStyle";
 import { DEFAULT_BACKGROUND_COLOR, MAIN_BACKGROUND_ID, type Settings } from "@/types/Settings";
+import $modules from "@/helpers/Modules";
+import $userdata from "@/helpers/UserData";
+import { ModuleEnum } from "@/enums/ModuleEnum";
 
 /**
  * `public/logo.png` não passa pelo bundler, então o caminho é resolvido contra
@@ -49,14 +63,55 @@ const logoUrl = new URL("/logo.png", document.baseURI).href;
 /** Mesmo fundo da aba Opções → Geral → Imagem de Fundo e do módulo de fundo. */
 const fundo = ref<Record<string, string>>({ background: DEFAULT_BACKGROUND_COLOR });
 const saindo = ref(false);
+const entrou = ref(false);
+
+/**
+ * O mesmo tempo de fade da Projeção de Fundo: o loader é a camada de transição
+ * da projeção de Site, e as duas coisas entram e saem com o mesmo relógio.
+ */
+const MODULE_PATH = $modules.getPath(ModuleEnum.BACKGROUND_PROJECTION);
+const fadeMs = computed(() => $userdata.get<number>(`${MODULE_PATH}.fade_duration`, 500) ?? 500);
 
 /** Quanto tempo o telão ficou coberto — custo real do carregamento + apresentação. */
 const montadoEm = Date.now();
 /** Um `pronto: true` por ciclo: avisar duas vezes duplicaria o evento. */
 let reportado = false;
+/** Houve um `pronto: true` desde o último `pronto: false` — ou seja, um ciclo anterior. */
+let saindoAnterior = false;
 
 let blobUrl: string | null = null;
 let cancelar: (() => void) | null = null;
+
+/**
+ * Acende o fade de entrada só depois que o navegador pintou o quadro
+ * transparente. Um `requestAnimationFrame` não basta: sem um estilo
+ * intermediário commitado, o navegador pula do valor antigo direto para o novo
+ * e a transição não sai.
+ *
+ * O prazo é a rede de segurança: o Chromium PAUSA o `requestAnimationFrame` de
+ * janela oculta ou encoberta, e o loader passa boa parte do ciclo encoberto pela
+ * janela de Site. Um loader que nunca acende é pior do que um loader que acende
+ * sem animar — é a tela branca da página chegando que ele existe para esconder.
+ */
+let entradaTimer: ReturnType<typeof setTimeout> | null = null;
+
+function acenderEntrada(): void {
+  entrou.value = false;
+  if (entradaTimer) clearTimeout(entradaTimer);
+  entradaTimer = setTimeout(() => {
+    entradaTimer = null;
+    entrou.value = true;
+  }, 120);
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (entradaTimer) {
+        clearTimeout(entradaTimer);
+        entradaTimer = null;
+      }
+      entrou.value = true;
+    });
+  });
+}
 
 async function carregarFundo(): Promise<void> {
   const s = await getSetting<Settings>(MAIN_BACKGROUND_ID).catch(() => null);
@@ -94,8 +149,16 @@ onMounted(() => {
         saindo.value = pronto;
         if (!pronto) {
           reportado = false;
+          /*
+           * A janela de loader é reaproveitada entre ciclos e o componente
+           * continua montado depois de um `pronto: true` — sem esta volta ao
+           * zero, o segundo ciclo mostraria o loader já aceso, sem fade de
+           * entrada, e a sair sem animá-lo de novo.
+           */
+          if (saindoAnterior) acenderEntrada();
           return;
         }
+        saindoAnterior = true;
         if (reportado) return;
         reportado = true;
         /*
@@ -114,11 +177,14 @@ onMounted(() => {
     ) || null;
 
   void carregarFundo();
+  acenderEntrada();
 });
 
 onBeforeUnmount(() => {
   cancelar?.();
   cancelar = null;
+  if (entradaTimer) clearTimeout(entradaTimer);
+  entradaTimer = null;
   if (blobUrl) URL.revokeObjectURL(blobUrl);
   blobUrl = null;
 });
@@ -146,9 +212,19 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: end;
   justify-content: center;
-  opacity: 1;
-  transition: opacity 400ms ease;
+  /*
+   * Nasce transparente e só acende com `.site-loader--entrando`, depois de um
+   * quadro pintado (ver `acenderEntrada`). A saída usa o MESMO tempo — a
+   * variável vem do `fade_duration` da Projeção de Fundo, o mesmo que a música
+   * e o vídeo usam dentro da janela de fundo.
+   */
+  opacity: 0;
+  transition: opacity var(--site-loader-fade, 500ms) ease;
   margin-bottom: 30px;
+}
+
+.site-loader--entrando {
+  opacity: 1;
 }
 
 .site-loader--saindo {

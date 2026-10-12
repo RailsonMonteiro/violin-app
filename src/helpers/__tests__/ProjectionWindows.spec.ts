@@ -783,6 +783,125 @@ describe("tela de loading da projeção de Site", () => {
   });
 });
 
+describe("saída da projeção de Site — o loader vira camada de transição", () => {
+  const URL_DO_SITE = "https://exemplo.com/enquete";
+  const aguardar = vi.fn(async () => ({ ok: true }));
+  type Janela = { louvorjaApi?: { siteLoader?: unknown } };
+  let apiAnterior: unknown;
+
+  /** Site no ar (e, opcionalmente, o espelho de retorno). */
+  function siteNoAr(comRetorno = false): void {
+    isWindowOpen.mockImplementation(
+      async (feature: string) =>
+        feature === PROJECTION_TYPE.SITE ||
+        feature === PROJECTION_TYPE.SITE_LOADER ||
+        (comRetorno &&
+          (feature === PROJECTION_TYPE.SITE_RETURN ||
+            feature === PROJECTION_TYPE.SITE_LOADER_RETURN))
+    );
+  }
+
+  beforeEach(() => {
+    apiAnterior = (window as unknown as Janela).louvorjaApi;
+    (window as unknown as Janela).louvorjaApi = {
+      siteLoader: { onPronto: () => () => {}, aguardar },
+    };
+    aguardar.mockClear();
+    aguardar.mockResolvedValue({ ok: true });
+  });
+
+  afterEach(() => {
+    (window as unknown as Janela).louvorjaApi = apiAnterior as never;
+  });
+
+  it("cobre a tela com o loader ANTES de fechar, para a saída ter fade", async () => {
+    siteNoAr();
+
+    await windows.closeSiteWindow();
+
+    const posLoader = calls.indexOf(`open:${PROJECTION_TYPE.SITE_LOADER}`);
+    const posSite = calls.indexOf(`close:${PROJECTION_TYPE.SITE}`);
+    expect(posLoader).toBeGreaterThanOrEqual(0);
+    /* Loader depois do fechamento viraria um clarão na frente da congregação. */
+    expect(posLoader).toBeLessThan(posSite);
+  });
+
+  it("só depois de fechar é que avisa que pode esperar — o main revela na hora", async () => {
+    siteNoAr();
+
+    await windows.closeSiteWindow();
+
+    /*
+     * Sem janela de Site sobrando, o main não tem o que esperar: manda o
+     * `pronto: true` no mesmo turno e o loader dá o fade de saída.
+     */
+    expect(aguardar).toHaveBeenCalledTimes(1);
+    /*
+     * E quem fecha o loader é o main, depois do fade. Fechar aqui seria cortar
+     * a animação pela metade.
+     */
+    expect(calls).not.toContain(`close:${PROJECTION_TYPE.SITE_LOADER}`);
+    expect(calls).not.toContain(`close:${PROJECTION_TYPE.SITE_LOADER_RETURN}`);
+  });
+
+  it("o espelho de retorno sai com fade também", async () => {
+    siteNoAr(true);
+
+    await windows.closeSiteWindow();
+
+    expect(calls).toContain(`open:${PROJECTION_TYPE.SITE_LOADER_RETURN}`);
+    expect(calls).toContain(`close:${PROJECTION_TYPE.SITE_RETURN}`);
+  });
+
+  it("sem nada no ar, não abre loader nenhum — loader para fechar é clarão", async () => {
+    isWindowOpen.mockResolvedValue(false);
+
+    await windows.closeSiteWindow();
+
+    expect(calls.filter((c) => c.startsWith("open:"))).toEqual([]);
+    expect(calls).toContain(`close:${PROJECTION_TYPE.SITE_LOADER}`);
+  });
+
+  it("no web, onde não existe loader, a saída é imediata como sempre", async () => {
+    (window as unknown as Janela).louvorjaApi = undefined;
+    siteNoAr();
+
+    await windows.closeSiteWindow();
+
+    expect(calls.filter((c) => c.startsWith("open:"))).toEqual([]);
+    expect(calls).toContain(`close:${PROJECTION_TYPE.SITE}`);
+  });
+
+  it("se o loader não conseguir abrir, fecha na hora em vez de travar a tela", async () => {
+    siteNoAr();
+    openWindow.mockImplementationOnce(async (opts: OpenArgs) => {
+      if (opts.feature === PROJECTION_TYPE.SITE_LOADER) throw new Error("sem monitor");
+      calls.push(`open:${opts.feature}`);
+    });
+
+    await windows.closeSiteWindow();
+
+    expect(calls).toContain(`close:${PROJECTION_TYPE.SITE}`);
+    /* Sem cobertura não há fade, mas a projeção encerra do mesmo jeito. */
+    expect(calls).toContain(`close:${PROJECTION_TYPE.SITE_LOADER}`);
+    expect(aguardar).not.toHaveBeenCalled();
+  });
+
+  it("mídia assumindo o telão fecha o site na hora — quem entra com fade é ela", async () => {
+    await windows.openSiteWindow(URL_DO_SITE, "liturgy");
+    siteNoAr();
+    calls.length = 0;
+    aguardar.mockClear();
+
+    await windows.openMediaWindow("projection", "music");
+
+    /* A música não pode ficar esperando o site sair com fade. */
+    expect(calls.filter((c) => c.startsWith("open:")).join()).not.toContain(
+      PROJECTION_TYPE.SITE_LOADER
+    );
+  });
+});
+
 describe("telemetria da projeção de Site", () => {
   const URL_DO_SITE = "https://exemplo.com/culto";
   const eventos = () =>

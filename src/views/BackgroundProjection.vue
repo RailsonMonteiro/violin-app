@@ -1,143 +1,176 @@
 <template>
-  <!-- Layer 0: Fundo preto permanente -->
-  <div class="layer-root-bg"></div>
+  <!--
+    Raiz única de propósito: um `Transition` que é filho direto de um
+    template com vários irmãos NÃO anima a saída — o Vue não pendura os ganchos
+    nele. Tudo aqui dentro é `position: fixed`, então a raiz não atrapalha a
+    sobreposição das camadas.
+  -->
+  <div class="projection-root">
+    <!-- Layer 0: Fundo preto permanente -->
+    <div class="layer-root-bg"></div>
 
-  <!-- Layer: Fundo customizado (wallpaper) -->
-  <div class="fp-wallpaper" :style="fallbackStyle"></div>
+    <!-- Layer: Fundo customizado (wallpaper) -->
+    <div class="fp-wallpaper" :style="fallbackStyle"></div>
 
-  <!-- MODO FILE PROJECTION -->
-  <template v-if="fileState.active">
-    <div class="file-projection">
-      <img v-if="fileState.type === 'image'" :src="fileState.url" class="layer-file" alt="" />
-      <video
-        v-else-if="fileState.type === 'video'"
-        ref="projVideoRef"
-        :src="fileState.url"
-        class="layer-file"
-        autoplay
-        muted
-        loop
-      ></video>
-      <template v-else-if="fileState.type === 'youtube'">
-        <div v-show="!ytFailed" ref="ytContainer" class="layer-file"></div>
-        <div v-if="ytFailed" class="layer-file video-unavailable">
-          <span class="video-unavailable__title">{{ $t("projection.video_unavailable") }}</span>
-          <span class="video-unavailable__hint">{{ $t("projection.video_unavailable_hint") }}</span>
-        </div>
-      </template>
-      <canvas
-        v-else-if="fileState.type === 'pdf'"
-        ref="pdfCanvas"
-        class="layer-file layer-file--pdf"
-      ></canvas>
-    </div>
-  </template>
-
-  <!-- MODO BACKGROUND PROJECTION -->
-  <template v-else>
-    <Transition name="fade">
-      <img
-        v-if="curBg.type === 'image'"
-        :key="'img-' + curBg.url"
-        :src="curBg.url"
-        class="layer-bg"
-        :style="{ '--fade-ms': fadeDurationMs + 'ms' }"
-        alt=""
-      />
-      <video
-        v-else-if="curBg.type === 'video'"
-        :key="'vid-' + curBg.url"
-        ref="bgVideoRef"
-        :src="curBg.url"
-        class="layer-bg"
-        :style="{ '--fade-ms': fadeDurationMs + 'ms' }"
-        autoplay
-        muted
-        loop
-      ></video>
-    </Transition>
-    <Transition name="fade">
+    <!-- MODO FILE PROJECTION -->
+    <Transition name="fade" :duration="fadeDurationMs">
       <div
-        v-if="!curBg.active"
-        class="layer-bg layer-bg--fallback"
-        :style="{ ...fallbackStyle, '--fade-ms': fadeDurationMs + 'ms' }"
-      ></div>
-    </Transition>
-    <div v-if="projActive" class="layer-projection">
-      <!-- Bíblia: renderização com formatação própria -->
-      <div
-        v-if="projType === 'bible'"
-        ref="container"
-        class="bible-root"
-        :class="[`align-${bibleVerticalAlign}`, `justify-${bibleHorizontalAlign}`]"
+        v-if="fileState.active"
+        class="file-projection"
+        :style="{ '--fade-ms': fadeDurationMs + 'ms' }"
       >
-        <Transition name="fade-verse" mode="out-in">
-          <div
-            v-if="bibleActive && (bibleDisplayText || bibleDisplayReference)"
-            :key="bibleDisplayText + bibleDisplayReference"
-            class="bible-content"
-            :style="{
-              padding: `${bibleBorderSpacing}px`,
-              backgroundColor: bibleTextBackgroundEnabled
-                ? bibleTextBackgroundColor || 'transparent'
-                : 'transparent',
-            }"
-          >
-            <span
-              v-if="bibleDisplayText"
-              class="bible-text"
-              :style="{
-                color: bibleFontColor,
-                fontSize: bibleFontSizePx + 'px',
-                fontFamily: bibleFont,
-                textAlign: bibleTextAlign,
-                ...bibleTextShadowStyle,
-              }"
-            >
-              {{ bibleDisplayText }}
-            </span>
-            <span
-              v-if="bibleDisplayReference"
-              class="bible-reference"
-              :style="{
-                color: bibleRefFontColor,
-                fontSize: bibleRefFontSizePx + 'px',
-                fontFamily: bibleRefFont,
-                textAlign: bibleTextAlign,
-              }"
-            >
-              {{ bibleDisplayReference }}
+        <img v-if="fileState.type === 'image'" :src="fileState.url" class="layer-file" alt="" />
+        <video
+          v-else-if="fileState.type === 'video'"
+          ref="projVideoRef"
+          :src="fileState.url"
+          class="layer-file"
+          autoplay
+          muted
+          loop
+        ></video>
+        <template v-else-if="fileState.type === 'youtube'">
+          <div v-show="!ytFailed" ref="ytContainer" class="layer-file"></div>
+          <div v-if="ytFailed" class="layer-file video-unavailable">
+            <span class="video-unavailable__title">{{ $t("projection.video_unavailable") }}</span>
+            <span class="video-unavailable__hint">
+              {{ $t("projection.video_unavailable_hint") }}
             </span>
           </div>
-          <div v-else class="bible-empty"></div>
+        </template>
+        <canvas
+          v-else-if="fileState.type === 'pdf'"
+          ref="pdfCanvas"
+          class="layer-file layer-file--pdf"
+        ></canvas>
+      </div>
+    </Transition>
+
+    <!-- MODO BACKGROUND PROJECTION -->
+    <!--
+      O wrapper existe para o conjunto (fundo, fallback e camada de projeção)
+      poder sair com fade quando o arquivo assume a tela. Ele é estático de
+      propósito: os filhos são `position: fixed` e precisam continuar se ancorando
+      na janela, e não nele.
+    -->
+    <Transition name="fade" :duration="fadeDurationMs">
+      <div
+        v-if="!fileState.active"
+        class="bg-stack"
+        :style="{ '--fade-ms': fadeDurationMs + 'ms' }"
+      >
+        <Transition name="fade">
+          <img
+            v-if="curBg.type === 'image'"
+            :key="'img-' + curBg.url"
+            :src="curBg.url"
+            class="layer-bg"
+            :style="{ '--fade-ms': fadeDurationMs + 'ms' }"
+            alt=""
+          />
+          <video
+            v-else-if="curBg.type === 'video'"
+            :key="'vid-' + curBg.url"
+            ref="bgVideoRef"
+            :src="curBg.url"
+            class="layer-bg"
+            :style="{ '--fade-ms': fadeDurationMs + 'ms' }"
+            autoplay
+            muted
+            loop
+          ></video>
+        </Transition>
+        <Transition name="fade">
+          <div
+            v-if="!curBg.active"
+            class="layer-bg layer-bg--fallback"
+            :style="{ ...fallbackStyle, '--fade-ms': fadeDurationMs + 'ms' }"
+          ></div>
+        </Transition>
+        <Transition name="fade" :duration="fadeDurationMs">
+          <div
+            v-if="projActive"
+            :key="projType"
+            class="layer-projection"
+            :style="{ '--fade-ms': fadeDurationMs + 'ms' }"
+          >
+            <!-- Bíblia: renderização com formatação própria -->
+            <div
+              v-if="projType === 'bible'"
+              ref="container"
+              class="bible-root"
+              :class="[`align-${bibleVerticalAlign}`, `justify-${bibleHorizontalAlign}`]"
+            >
+              <Transition name="fade-verse" mode="out-in">
+                <div
+                  v-if="bibleActive && (bibleDisplayText || bibleDisplayReference)"
+                  :key="bibleDisplayText + bibleDisplayReference"
+                  class="bible-content"
+                  :style="{
+                    padding: `${bibleBorderSpacing}px`,
+                    backgroundColor: bibleTextBackgroundEnabled
+                      ? bibleTextBackgroundColor || 'transparent'
+                      : 'transparent',
+                  }"
+                >
+                  <span
+                    v-if="bibleDisplayText"
+                    class="bible-text"
+                    :style="{
+                      color: bibleFontColor,
+                      fontSize: bibleFontSizePx + 'px',
+                      fontFamily: bibleFont,
+                      textAlign: bibleTextAlign,
+                      ...bibleTextShadowStyle,
+                    }"
+                  >
+                    {{ bibleDisplayText }}
+                  </span>
+                  <span
+                    v-if="bibleDisplayReference"
+                    class="bible-reference"
+                    :style="{
+                      color: bibleRefFontColor,
+                      fontSize: bibleRefFontSizePx + 'px',
+                      fontFamily: bibleRefFont,
+                      textAlign: bibleTextAlign,
+                    }"
+                  >
+                    {{ bibleDisplayReference }}
+                  </span>
+                </div>
+                <div v-else class="bible-empty"></div>
+              </Transition>
+            </div>
+
+            <!-- Música: renderização via Slide -->
+            <Slide
+              v-else
+              :slide="slide!!"
+              :title="title"
+              :progress="progress"
+              show-progress
+              class="layer-slide"
+            />
+          </div>
         </Transition>
       </div>
+    </Transition>
 
-      <!-- Música: renderização via Slide -->
-      <Slide
-        v-else
-        :slide="slide!!"
-        :title="title"
-        :progress="progress"
-        show-progress
-        class="layer-slide"
-      />
-    </div>
-  </template>
-
-  <!-- Layer 2: Overlays -->
-  <OverlayRenderer />
-  <LibrasOverlay
-    :slide-lyric="projType === 'music' ? (slide?.lyric as string) : undefined"
-    :music-id="projType === 'music' ? (slide?.id_music as number | undefined) : undefined"
-    :slide-index="projType === 'music' ? slideIndex : undefined"
-    :verse-text="projType === 'bible' ? bibleText : undefined"
-    :bible-version="projType === 'bible' ? bibleVersion : undefined"
-    :bible-book-id="projType === 'bible' ? bibleBookId : undefined"
-    :bible-chapter="projType === 'bible' ? Number(bibleChapter) || undefined : undefined"
-    :bible-verses="projType === 'bible' ? bibleVerses : undefined"
-    :type="projType"
-  />
+    <!-- Layer 2: Overlays -->
+    <OverlayRenderer />
+    <LibrasOverlay
+      :slide-lyric="projType === 'music' ? (slide?.lyric as string) : undefined"
+      :music-id="projType === 'music' ? (slide?.id_music as number | undefined) : undefined"
+      :slide-index="projType === 'music' ? slideIndex : undefined"
+      :verse-text="projType === 'bible' ? bibleText : undefined"
+      :bible-version="projType === 'bible' ? bibleVersion : undefined"
+      :bible-book-id="projType === 'bible' ? bibleBookId : undefined"
+      :bible-chapter="projType === 'bible' ? Number(bibleChapter) || undefined : undefined"
+      :bible-verses="projType === 'bible' ? bibleVerses : undefined"
+      :type="projType"
+    />
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -855,6 +888,16 @@ onBeforeUnmount(() => {
   opacity: 0;
 }
 
+/*
+ * A raiz não desenha nada e não posiciona: existe só para o template ter um
+ * único elemento na raiz, porque é isso que faz o `Transition` pendurar os
+ * ganchos de entrada E de saída. Sem `position`, os filhos `fixed` continuam
+ * se ancorando na janela.
+ */
+.projection-root {
+  display: block;
+}
+
 .layer-projection {
   position: fixed;
   inset: 0;
@@ -877,7 +920,7 @@ onBeforeUnmount(() => {
 .file-projection {
   position: fixed;
   inset: 0;
-  z-index: 1;
+  z-index: 2;
 }
 
 /* Bible rendering inside background projection */

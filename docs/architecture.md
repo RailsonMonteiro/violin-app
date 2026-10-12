@@ -1214,6 +1214,33 @@ mesmos):
   não escuta nada, então o que o operador digita/clica lá não chega à de
   projeção. O fluxo é operar pela janela principal.
 
+### Fade do telão (`modules.background_projection.fade_duration`)
+
+Um relógio só para tudo que entra e sai na frente da congregação: **música**,
+**bíblia**, **arquivo/vídeo** e **site**.
+
+Com a **Projeção de Fundo** aberta, `isBackgroundOpen()` faz a música, a bíblia
+e o arquivo renderizarem **dentro** dela
+(`src/views/BackgroundProjection.vue` e o espelho
+`BackgroundProjectionReturn.vue`), em vez de abrir janelas próprias. Três
+detalhes sustentam o fade dessas camadas:
+
+- **Cada camada é uma `Transition` própria**, com `:duration="fadeDurationMs"` e
+  `--fade-ms` no elemento. A duração vai explícita porque é ela — e não o CSS
+  lido de volta pelo navegador — que diz ao Vue quando a camada pode ser
+  removida; as duas concordam, então a animação nunca é cortada.
+- **O arquivo e o fundo se cruzam**: o arquivo entra enquanto o conjunto do
+  fundo (`.bg-stack`: fundo, fallback e camada de slides) sai, em vez de o
+  fundo sumir primeiro e deixar o vídeo aparecer sobre uma tela vazia. Por isso
+  `.file-projection` tem `z-index` acima das camadas do fundo.
+- **A tela tem UMA raiz** (`div.projection-root`). Um `<Transition>` que é filho
+  direto de um template com **vários irmãos** não recebe os ganchos de saída —
+  a camada é removida sem animar. Foi o que escondeu o bug nos testes; sem a raiz
+  única, a entrada funciona e a saída não.
+
+Sem a Projeção de Fundo, `FileProjection.vue` e `Projection.vue` continuam
+intactos — elas já têm o seu próprio sistema de transição (`lj-t-*`).
+
 ### Uma coisa por vez
 
 Site, música e arquivo não dividem a tela:
@@ -1232,6 +1259,15 @@ Site, música e arquivo não dividem a tela:
   (`ProjectionWindows.ts`), que fecha o site antes — é o portão de todas as
   janelas de música, arquivo e vídeo online. Anúncios e bíblia não passam por
   ali e continuam fora da regra.
+
+**O site NÃO entra na janela de fundo.** Não é uma escolha de layout: a CSP do
+app tem `frame-src` de lista fixa (`config/cspDomains.cjs` → só YouTube e
+VLibras), sites externos recusam ser emoldurados (`X-Frame-Options` /
+`frame-ancestors`), e a projeção de Site precisa de uma `BrowserWindow` real —
+gesto de apresentação do Canva, envio de teclado, guarda de navegação, tela de
+retorno e isolamento (`preload: undefined`). O que dá o mesmo efeito é o
+**loader**: ele pinta o mesmo fundo e entra e sai com o mesmo `fade_duration`
+(ver **Loader de projeção de Site**).
 
 ### Controlando a projeção
 
@@ -2264,7 +2300,7 @@ renderer abre site_loader → site → [site_loader_return → site_return]
 renderer chama site-loader:aguardar   ← declara quais janelas existem
 main espera cada uma ficar pronta     ← carregada; no Canva, apresentada e sem controles
 main manda {pronto:true} para OS DOIS loaders ao mesmo tempo
-loaders dão fade (CSS, 400 ms) → main fecha os dois (550 ms)
+loaders dão fade (CSS, fade_duration) → main fecha os dois depois do fade
 ```
 
 - **Quem declara é o renderer**, porque só ele sabe o que abriu: a de retorno
@@ -2296,9 +2332,42 @@ loaders dão fade (CSS, 400 ms) → main fecha os dois (550 ms)
   ela vai recarregar: marcar cedo fecharia o loader no instante em que ele mal
   apareceu.
 - **Fade por CSS** (`transition: opacity`), não `win.setOpacity()`: essa API não
-  existe no Linux. Quem fecha é o main, 550 ms depois.
+  existe no Linux. Quem fecha é o main, **depois** que o fade cabe inteiro: a
+  espera é `max(550, fade_duration + 150)`, senão um fade configurado em 2 s
+  seria cortado e o conteúdo de baixo apareceria no meio da animação.
+- **Entrada e saída têm o mesmo relógio**: o tempo é o `fade_duration` da
+  **Projeção de Fundo** (`modules.background_projection.fade_duration`), o mesmo
+  que a música e o vídeo usam dentro da janela de fundo. O loader é a camada de
+  transição da projeção de Site nos dois sentidos:
+  - **entra**: nasce transparente e só acende depois que o navegador pintou o
+    primeiro quadro (`acenderEntrada`, dois `requestAnimationFrame`, com um prazo
+    de segurança porque o Chromium **pausa o rAF** de janela encoberta — e o
+    loader fica encoberto pela janela de Site boa parte do ciclo; loader que
+    nunca acende é pior do que loader que acende sem animar). Como a janela é
+    **reaproveitada** entre ciclos, é o `pronto: false` do ciclo novo que religa
+    a entrada — sem isso o segundo ciclo mostraria o loader já aceso;
+  - **sai**: `_closeSite({ fade: true })` abre os loaders **antes** de fechar,
+    fecha `site`/`site_return` **por trás** deles e só então chama
+    `siteLoader.aguardar()`. Como não há janela de Site sobrando, o main não
+    tem o que esperar: manda o `pronto: true` no mesmo turno. **A ordem é o
+    mecanismo inteiro** — loader depois do fechamento viraria um clarão, e sem o
+    `aguardar` o loader ficaria preso na frente da congregação.
+- **Nem todo encerramento sai com fade**: o gate `if (_siteActive)` de
+  `openMediaWindow` fecha na hora — quem entra com fade é a mídia, e ela não
+  pode esperar. Sem site no ar, ou sem a porta do loader (web/PWA), também
+  fecha direto: loader para fechar o que já não existe é só clarão.
+- **Janela de Site que fecha no meio da espera** libera o loader
+  (`_siteSumiu`, ligado por `_escutarFechamento`): sem isso ela ficaria presa
+  esperando um sinal que não viria, até o timeout de 20 s. A mesma escuta tira a
+  janela de `_siteProntas` — janela fechada não é "pronta" para o próximo ciclo.
+  Ela troca o ouvinte anterior a cada ciclo: a janela é **reaproveitada** e dez
+  projeções acumulariam dez `once("closed")` nela.
+- **Um ciclo novo cancela o fechamento que o anterior agendou** (o
+  `clearTimeout` fica ANTES do `return` do `pronto: false`): senão o timer do
+  ciclo anterior fecharia o loader que acabou de subir, e a projeção apareceria
+  sem cobertura nenhuma.
 - **Sempre sai**: `LOADER_TIMEOUT_MS = 20000` revela mesmo sem resposta, e
-  encerrar a projeção fecha os loaders junto (`_closeSite`). Se o `aguardar`
+  encerrar a projeção fecha os loaders junto. Se o `aguardar`
   falhar, o renderer fecha na hora — sem IPC não há timeout a acionar.
 - Sem papel em `FEATURE_ROLE` o `roleOfFeature` devolve `null` e a janela é
   recusada fora da tela do operador: é por isso que `site_loader` /

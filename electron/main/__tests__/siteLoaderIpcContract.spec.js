@@ -75,13 +75,97 @@ describe("Loader de projeção de Site — contrato", () => {
     /*
      * Se `aguardar` viesse antes, o main estaria adivinhando quais janelas
      * esperar — e adivinha errado quando a de retorno nem existe.
+     *
+     * A busca é ESCOPADA em `openSiteWindow`: a saída com fade também avisa, e
+     * `indexOf` acharia essa occurrence primeiro, no lugar errado.
      */
-    const abrir = RENDERER.indexOf("await _abrirLoaderSite(");
-    const abrirSite = RENDERER.indexOf("await _open(url, PROJECTION_TYPE.SITE,");
-    const aguardar = RENDERER.indexOf("await _aguardarLoadersSite()");
+    const abertura = RENDERER.slice(RENDERER.indexOf("export async function openSiteWindow("));
+    const abrir = abertura.indexOf("await _abrirLoaderSite(");
+    const abrirSite = abertura.indexOf("await _open(url, PROJECTION_TYPE.SITE,");
+    const aguardar = abertura.indexOf("await _aguardarLoadersSite()");
     expect(abrir).toBeGreaterThan(-1);
     expect(abrirSite).toBeGreaterThan(abrir);
     expect(aguardar).toBeGreaterThan(abrirSite);
+  });
+
+  it("na saída com fade, o loader cobre ANTES e o main é avisado DEPOIS de fechar", () => {
+    /*
+     * A ordem é o mecanismo inteiro do fade de saída: loader na frente → Site
+     * fechado → `aguardar`. Com o Site já sumido, o main não tem o que esperar
+     * e revela no mesmo turno. Invertido, o telão pisca; e sem o `aguardar`, o
+     * loader fica preso na frente da congregação.
+     */
+    const saida = RENDERER.slice(RENDERER.indexOf("async function _closeSite("));
+    const cobrir = saida.indexOf("await _cobrirSiteParaSair()");
+    const fechar = saida.indexOf("await Promise.all([");
+    const aguardar = saida.indexOf("await _aguardarLoadersSite()");
+    expect(cobrir).toBeGreaterThan(-1);
+    expect(fechar).toBeGreaterThan(cobrir);
+    expect(aguardar).toBeGreaterThan(fechar);
+  });
+
+  it("a espera pelo fechamento do loader acompanha o fade_duration", () => {
+    /*
+     * O loader dá o fade em CSS com o `fade_duration` da Projeção de Fundo. Um
+     * atraso fixo cortaria a animação pela metade em fades longos e revelaria o
+     * conteúdo de baixo no meio da transição.
+     */
+    expect(MAIN).toMatch(/const LOADER_FECHAR_MS = 550/);
+    expect(MAIN).toContain("modules.background_projection.fade_duration");
+    expect(MAIN).toContain("}, _esperaFechamentoLoaderMs());");
+    /* O piso continua valendo para quem não mexeu na configuração. */
+    expect(MAIN).toMatch(/Math\.max\(LOADER_FECHAR_MS, configurado \+ 150\)/);
+  });
+
+  it("janela de Site que fecha no meio da espera libera o loader", () => {
+    /*
+     * A saída com fecha a janela e só depois avisa. Se ela morrer entre as duas
+     * coisas, sem esta escuta o loader ficaria cobrindo a tela até o timeout de
+     * 20 s — e a janela fechada continuaria marcada como "pronta" para o
+     * próximo ciclo.
+     */
+    expect(MAIN).toContain("function _siteSumiu(");
+    expect(MAIN).toContain("for (const feature of alvos) _escutarFechamento(feature);");
+    expect(MAIN).toMatch(/function _siteSumiu\(feature\)[\s\S]*?_siteProntas\.delete\(feature\);/);
+  });
+
+  it("a escuta pega as janelas do ciclo, não só as que ainda estão pendentes", () => {
+    /*
+     * `_siteProntas` é limpo pela escuta de `closed`. Uma janela que carregou
+     * ANTES do `aguardar` nunca entra no `esperando` — escutar só as pendentes
+     * deixaria a marca sobrando, e a segunda projeção da mesma sessão revelaria
+     * o site antes de carregar.
+     */
+    expect(MAIN).toContain("const alvos = SITE_FEATURES.filter");
+    expect(MAIN).not.toContain("for (const feature of _loader.esperando) _escutarFechamento(feature);");
+  });
+
+  it("a escuta de fechamento não se acumula a cada ciclo", () => {
+    /*
+     * A janela de Site é REAPROVEITADA e `aguardar` roda a cada projeção: um
+     * `once("closed")` novo por ciclo deixaria dez escutas na mesma janela
+     * depois de dez projeções (e o Node avisa).
+     */
+    expect(MAIN).toMatch(
+      /function _escutarFechamento\(feature\)[\s\S]*?anterior\(\);[\s\S]*?win\.once\("closed", ouvir\);/
+    );
+  });
+
+  it("um ciclo novo cancela o fechamento que o anterior agendou", () => {
+    /*
+     * O loader é REAPROVEITADO: se o timer do ciclo anterior sobrevivesse, ele
+     * fecharia o loader que acabou de subir, no meio do ciclo novo — e a
+     * projeção apareceria sem cobertura. O cancelamento tem que vir ANTES do
+     * `return` do `pronto: false`, que é o aviso de início de ciclo.
+     */
+    const avisar = MAIN.slice(
+      MAIN.indexOf("function _loaderAvisar(pronto)"),
+      MAIN.indexOf("windowFactory.setSiteReadyListener(")
+    );
+    const cancelar = avisar.indexOf("clearTimeout(_loader.fechamento)");
+    const sairCedo = avisar.indexOf("if (!pronto) return;");
+    expect(cancelar).toBeGreaterThan(-1);
+    expect(sairCedo).toBeGreaterThan(cancelar);
   });
 });
 

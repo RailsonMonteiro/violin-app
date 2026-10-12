@@ -65,11 +65,40 @@ let _siteActive = false;
  * (fechamento geral, mídia assumindo a tela e pedido do operador) e os três
  * precisam limpar a mesma bandeira — senão as teclas continuariam sendo
  * encaminhadas para uma janela que já não existe.
+ *
+ * `fade` cobre a tela com os loaders ANTES de fechar, para a saída ter o mesmo
+ * fade de entrada: o loader é a camada de transição da projeção de Site nos
+ * dois sentidos. Só faz sentido quando a URL está no ar — abrir um loader para
+ * fechar o que já não existe só produziria um clarão. Mídia assumindo a tela
+ * NÃO pede fade: ela quer o telão na hora, e quem entra com fade é ela própria.
  */
-async function _closeSite(): Promise<void> {
+async function _closeSite(opts: { fade?: boolean } = {}): Promise<void> {
   try {
-    // Juntas de propósito: a de retorno só existe se a de projeção existir,
-    // e deixar uma órfã manteria a URL na tela depois de "Encerrar projeção".
+    if (opts.fade && (await _cobrirSiteParaSair())) {
+      try {
+        // Juntas de propósito: a de retorno só existe se a de projeção existir,
+        // e deixar uma órfã manteria a URL na tela depois de "Encerrar projeção".
+        await Promise.all([
+          _close(PROJECTION_TYPE.SITE),
+          _close(PROJECTION_TYPE.SITE_RETURN),
+        ]);
+      } catch {
+        /*
+         * Site preso ATRÁS do loader é pior do que sumir na hora: a cobertura
+         * cai e o fechamento direto do main tenta de novo.
+         */
+        await _fecharLoadersSite();
+        return;
+      }
+      /*
+       * Só agora: o main recebe "as janelas deste ciclo existem" e encontra o
+       * Site já fechado, então revela no mesmo turno — o loader dá o fade e é
+       * ele, e não este renderer, que fecha as telas depois da animação.
+       * Esquecer esta linha prenderia o loader na frente da congregação.
+       */
+      await _aguardarLoadersSite();
+      return;
+    }
     // Os loaders vão junto: fechar a projeção tem que revelar uma tela
     // encerrada, não uma tela de loading presa na frente.
     await Promise.all([
@@ -81,6 +110,63 @@ async function _closeSite(): Promise<void> {
   } finally {
     _siteActive = false;
   }
+}
+
+/**
+ * Põe os loaders na frente da projeção de Site para a saída ter fade.
+ *
+ * Só o desktop tem loader — no web/PWA não existe essa porta. E só cobre o que
+ * está no ar: uma tela de loading para fechar uma projeção já encerrada seria
+ * um clarão na frente da congregação.
+ *
+ * @returns true se alguma tela de loading subiu, ou seja, vale fechar com fade
+ */
+async function _cobrirSiteParaSair(): Promise<boolean> {
+  if (!window.louvorjaApi?.siteLoader) return false;
+
+  const principalAberto = await isWindowOpen(PROJECTION_TYPE.SITE);
+  const retornoAberto = await isWindowOpen(PROJECTION_TYPE.SITE_RETURN);
+  if (!principalAberto && !retornoAberto) return false;
+
+  /*
+   * Mesma moldura e mesma cadeia de monitores da abertura: se o loader subir
+   * num monitor diferente do site, ele cobre o operador em vez do telão.
+   */
+  const fullscreen = $userdata.get(KEYS.OPTIONS.FILE_PROJECTION.FULLSCREEN, true) as boolean;
+  const alwaysOnTop = $userdata.get(
+    KEYS.OPTIONS.FILE_PROJECTION.ALWAYS_ON_TOP,
+    true
+  ) as boolean;
+
+  let cobriu = false;
+  if (principalAberto) {
+    let target = await _target(PROJECTION_TYPE.SITE);
+    if (!target.open) target = await _target(PROJECTION_TYPE.FILE);
+    if (!target.open) target = await _target(PROJECTION_TYPE.MUSIC);
+    const aberto = await _abrirLoaderSite(
+      PROJECTION_TYPE.SITE_LOADER,
+      target.monitorId,
+      fullscreen,
+      alwaysOnTop
+    );
+    cobriu = aberto || cobriu;
+  }
+  if (retornoAberto) {
+    let target = await _target(PROJECTION_TYPE.SITE_RETURN);
+    if (!target.open) target = await _target(PROJECTION_TYPE.RETURN);
+    const aberto = await _abrirLoaderSite(
+      PROJECTION_TYPE.SITE_LOADER_RETURN,
+      target.monitorId,
+      fullscreen,
+      alwaysOnTop
+    );
+    cobriu = aberto || cobriu;
+  }
+
+  /*
+   * Sem loader nenhum, o fade não acontece: a projeção sai na hora, como sempre.
+   */
+  return cobriu;
 }
 
 async function _close(feature: string): Promise<void> {
@@ -422,9 +508,9 @@ export async function forwardSiteKey(key: string): Promise<boolean> {
   return false;
 }
 
-/** Fecha a janela de URL e limpa a bandeira. */
+/** Fecha a janela de URL e limpa a bandeira, saindo com o mesmo fade da entrada. */
 export async function closeSiteWindow(): Promise<void> {
-  await _closeSite();
+  await _closeSite({ fade: true });
 }
 
 /** De onde veio o Site que está sendo projetado — só existe estes dois. */
@@ -715,9 +801,10 @@ export async function closeProjectionWindows(): Promise<void> {
     closeFileProjectionWindows(),
     /*
      * O Site é uma projeção como as outras: sem isto "Encerrar projeção"
-     * deixava a URL na tela.
+     * deixava a URL na tela. Sai com fade, como o operador pediu ao encerrar —
+     * aqui não há mídia disputando o telão, então nada precisa de pressa.
      */
-    _closeSite(),
+    _closeSite({ fade: true }),
   ]);
 }
 

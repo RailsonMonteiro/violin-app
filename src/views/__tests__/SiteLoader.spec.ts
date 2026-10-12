@@ -7,11 +7,16 @@ import FONTE from "../SiteLoader.vue?raw";
 import { MAIN_BACKGROUND_ID } from "@/types/Settings";
 
 const getSetting = vi.fn();
+const userdataGet = vi.fn();
 vi.mock("@/helpers/Telemetry", () => ({
   default: { track: vi.fn(), histogram: vi.fn() },
 }));
 vi.mock("@/helpers/SettingsStorage", () => ({
   getSetting: (id: string) => getSetting(id),
+}));
+/* O `fade_duration` da Projeção de Fundo é quem dita o tempo do fade aqui. */
+vi.mock("@/helpers/UserData", () => ({
+  default: { get: (param?: string, ifnull: unknown = null) => userdataGet(param, ifnull) },
 }));
 
 /** O canal que o main usa para abrir/fechar o ciclo do loader. */
@@ -79,6 +84,8 @@ function estilo(wrapper: ReturnType<typeof mount>): CSSStyleDeclaration {
 beforeEach(() => {
   instalarApi();
   getSetting.mockResolvedValue(null);
+  /* Ausente é o caso real: quem nunca mexeu no slider de fade. */
+  userdataGet.mockImplementation((_param?: string, ifnull: unknown = null) => ifnull);
   vi.mocked(Telemetry.track).mockClear();
 });
 
@@ -178,6 +185,108 @@ describe("SiteLoader", () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.find(".site-loader").classes()).not.toContain("site-loader--saindo");
+  });
+
+  describe("fade de entrada", () => {
+    /** Deixa o navegador "pintar" os dois quadros que a entrada espera. */
+    async function quadroPintado(wrapper: ReturnType<typeof montar>): Promise<void> {
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      await wrapper.vm.$nextTick();
+    }
+
+    it("nasce transparente e só acende depois do primeiro quadro", async () => {
+      const wrapper = montar();
+      await flushPromises();
+      const tela = wrapper.find(".site-loader");
+
+      /*
+       * Sem esta espera o navegador pularia do valor inicial direto para 1 e a
+       * transição não sairia — o loader apareceria seco, que é o que o
+       * `acenderEntrada` existe para evitar.
+       */
+      expect(tela.classes()).not.toContain("site-loader--entrando");
+
+      await quadroPintado(wrapper);
+      expect(tela.classes()).toContain("site-loader--entrando");
+    });
+
+    it("o CSS não deixa o loader aceso por padrão — quem acende é a entrada", () => {
+      /* Sem esta trava, um `display` errado viraria tela branca no telão. */
+      expect(FONTE).toMatch(/\.site-loader \{[^}]*opacity: 0;/s);
+      expect(FONTE).toMatch(/\.site-loader--entrando \{\s*opacity: 1;/);
+    });
+
+    it("um ciclo novo religa a entrada (janela de loader reaproveitada)", async () => {
+      const wrapper = montar();
+      await flushPromises();
+      await quadroPintado(wrapper);
+      const tela = wrapper.find(".site-loader");
+
+      aviso!({ pronto: true });
+      await wrapper.vm.$nextTick();
+      expect(tela.classes()).toContain("site-loader--saindo");
+
+      /*
+       * A janela continua montada depois de um `pronto: true`. Sem voltar ao
+       * zero, o segundo ciclo mostraria o loader já aceso e a sair sem fade.
+       */
+      aviso!({ pronto: false });
+      await wrapper.vm.$nextTick();
+      expect(tela.classes()).not.toContain("site-loader--saindo");
+      expect(tela.classes()).not.toContain("site-loader--entrando");
+
+      await quadroPintado(wrapper);
+      expect(tela.classes()).toContain("site-loader--entrando");
+    });
+
+    it("um aviso dentro do mesmo ciclo não recomeça a entrada", async () => {
+      const wrapper = montar();
+      await flushPromises();
+      await quadroPintado(wrapper);
+      const tela = wrapper.find(".site-loader");
+
+      /* O primeiro `pronto: false` já abriu o ciclo; repetir não recomeça. */
+      aviso!({ pronto: false });
+      await quadroPintado(wrapper);
+      expect(tela.classes()).toContain("site-loader--entrando");
+    });
+
+    it("acende mesmo com o requestAnimationFrame pausado", async () => {
+      /*
+       * O Chromium pausa o rAF de janela oculta ou encoberta — e o loader fica
+       * encoberto pela janela de Site boa parte do ciclo. Sem o prazo de
+       * segurança, ele ficaria transparente e a página apareceria crua.
+       */
+      vi.useFakeTimers();
+      vi.stubGlobal("requestAnimationFrame", () => 0);
+      const wrapper = montar();
+
+      expect(wrapper.find(".site-loader").classes()).not.toContain("site-loader--entrando");
+
+      vi.advanceTimersByTime(150);
+      await wrapper.vm.$nextTick();
+      expect(wrapper.find(".site-loader").classes()).toContain("site-loader--entrando");
+
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    });
+  });
+
+  it("entra e sai com o fade_duration da Projeção de Fundo", async () => {
+    userdataGet.mockImplementation((param?: string) =>
+      String(param || "").endsWith("background_projection.fade_duration") ? 1200 : null
+    );
+
+    const wrapper = montar();
+    await flushPromises();
+
+    expect(userdataGet).toHaveBeenCalledWith(
+      expect.stringContaining("background_projection.fade_duration"),
+      500
+    );
+    /* Mesma variável na entrada e na saída: um fade só, não dois tempos. */
+    expect(estilo(wrapper).getPropertyValue("--site-loader-fade")).toBe("1200ms");
   });
 
   it("ao desmontar, solta o ouvinte do main", async () => {
