@@ -265,29 +265,25 @@
       />
       <div style="margin: 20px 0 20px 0">OU</div>
 
-      <!-- Em vez de procurar no catálogo: cola o link e confirma. -->
+      <!--
+        Em vez de procurar no catálogo: cola o link. Não há botão "Usar" aqui
+        de propósito — o link é resolvido no SALVAR (título, download em cache
+        e gravação em Meus Vídeos), que é o que torna o campo um campo como os
+        outros. Antes a resolução morava num botão à parte, e quem clicasse em
+        Salvar sem passar por ele gravava o item sem URL nenhuma.
+      -->
       <LjField layout="column" :label="t('inputs.video_url_or_select')">
-        <div class="lif-inline lif-inline--half">
-          <!--
-            Com vídeo escolhido o campo fica desabilitado: são dois caminhos
-            que se excluem (catálogo e link direto) e o que vale é o que está
-            selecionado. O X do chip é quem devolve o campo.
-          -->
+        <!--
+          Campo sozinho na linha: ele ocupa a largura toda. Nas outras linhas
+          (`--half`) a metade da esquerda é do campo e a da direita é do botão
+          — aqui não há botão, sobraria um buraco.
+        -->
+        <div class="lif-inline lif-inline--solo">
           <LjInput
             v-model="videoUrl"
             :placeholder="t('inputs.video_url_placeholder')"
             :disabled="videoUrlBusy || !!form.url"
-            @keydown.enter.prevent="confirmVideoUrl"
           />
-          <LjButton
-            variant="primary"
-            :icon="ICONS.PROJECTION.START"
-            :loading="videoUrlBusy"
-            :disabled="videoUrlBusy || !!form.url"
-            @click="confirmVideoUrl"
-          >
-            {{ t("inputs.video_url_ok") }}
-          </LjButton>
         </div>
       </LjField>
       <LjCheckbox
@@ -441,9 +437,10 @@
         size="sm"
         variant="primary"
         data-testid="item-save"
-        :disabled="fileImporting"
+        :disabled="fileImporting || videoUrlBusy"
+        :loading="videoUrlBusy"
         :icon="isEditing ? ICONS.ACTIONS.SAVE : ICONS.ACTIONS.ADD"
-        @click="saveItem"
+        @click="salvarItem"
       >
         {{ isEditing ? t("actions.save") : t("actions.add") }}
       </LjButton>
@@ -705,52 +702,75 @@ function setSaveToMyVideos(ativo: boolean): void {
 }
 
 /**
- * Confirma o link colado: preenche o item e dá partida no download.
+ * Salva o item — resolvendo antes um link colado, se houver.
  *
- * O download acontece sempre, ligado ou não o checkbox — a opção controla só
- * se o vídeo é salvo na lista. O progresso já vai por tarefa em segundo plano;
- * o aviso é só para não parecer que o botão não fez nada.
+ * O campo de URL direta é um campo como os outros: o que está escrito só
+ * precisa valer quando o item é gravado. A resolução do link (título,
+ * download em cache, gravação em Meus Vídeos) acontecia num botão "Usar" à
+ * parte, e quem clicasse em Salvar sem passar por ele gravava o item sem URL
+ * nenhuma — o vídeo só projetava no clique seguinte.
+ *
+ * Link inválido aborta a gravação: salvar pela metade deixaria um item de
+ * vídeo on-line sem vídeo nenhum, sem dizer por quê.
  */
-async function confirmVideoUrl(): Promise<void> {
-  const digitado = videoUrl.value.trim();
-  if (!digitado || videoUrlBusy.value) return;
+async function salvarItem(): Promise<void> {
+  if (videoUrlBusy.value) return;
+  if (!videoUrl.value.trim()) {
+    props.saveItem();
+    return;
+  }
   videoUrlBusy.value = true;
   try {
-    const url = Liturgy.validateUrl(digitado);
-    const ytId = videoIdFromUrl(url);
-    if (!ytId) {
-      $snackbar.error(t("inputs.video_url_invalid"));
-      return;
-    }
-    const nome = (await fetchYoutubeTitle(ytId)) || url;
-    props.setFormField("url", url);
-    props.setFormField("item", nome);
-    props.setFormField("subitem", "YouTube");
-    videoUrl.value = url;
-
-    if (saveToMyVideos.value) {
-      await $idb.put(DB_TABLE.CUSTOM_ONLINE_VIDEOS, {
-        id: crypto.randomUUID(),
-        name: nome,
-        url,
-        createdAt: new Date().toISOString(),
-      });
-      await props.reloadVideos?.();
-    }
-
-    /*
-     * Aviso só onde há download de verdade: no web/PWA o `download` devolve
-     * false e o operador veria "Baixando" sem que nada baixasse.
-     */
-    if (downloadAvailable()) {
-      const globalT = i18nAtual()?.global?.t;
-      const aviso = globalT ? String(globalT("online_video.preparing")) : "";
-      if (aviso) $snackbar.info(aviso, { key: "liturgy-video-download", timeout: 5000 });
-    }
-    void videoDownloads.download(ytId, nome, { keep: saveToMyVideos.value });
+    const aplicou = await aplicarUrlColada();
+    if (!aplicou) return;
+    props.saveItem();
   } finally {
     videoUrlBusy.value = false;
   }
+}
+
+/**
+ * Aplica o link colado ao item e dá partida no download em cache.
+ *
+ * @returns `false` quando o link não vale — aí nada foi aplicado e quem
+ *   chamou não deve gravar.
+ */
+async function aplicarUrlColada(): Promise<boolean> {
+  const digitado = videoUrl.value.trim();
+  if (!digitado) return false;
+  const url = Liturgy.validateUrl(digitado);
+  const ytId = videoIdFromUrl(url);
+  if (!ytId) {
+    $snackbar.error(t("inputs.video_url_invalid"));
+    return false;
+  }
+  const nome = (await fetchYoutubeTitle(ytId)) || url;
+  props.setFormField("url", url);
+  props.setFormField("item", nome);
+  props.setFormField("subitem", "YouTube");
+  videoUrl.value = url;
+
+  if (saveToMyVideos.value) {
+    await $idb.put(DB_TABLE.CUSTOM_ONLINE_VIDEOS, {
+      id: crypto.randomUUID(),
+      name: nome,
+      url,
+      createdAt: new Date().toISOString(),
+    });
+    await props.reloadVideos?.();
+  }
+
+  /*
+   * Aviso só onde há download de verdade: no web/PWA o `download` devolve
+   * false e o operador veria "Baixando" sem que nada baixasse.
+   */
+  if (downloadAvailable()) {
+    const globalT = i18nAtual()?.global?.t;
+    const aviso = globalT ? String(globalT("online_video.preparing")) : "";
+    if (aviso) $snackbar.info(aviso, { key: "liturgy-video-download", timeout: 5000 });
+  }
+  void videoDownloads.download(ytId, nome, { keep: saveToMyVideos.value });
+  return true;
 }
 
 const selectedVideoName = computed(() => {
@@ -1049,6 +1069,13 @@ function onVersionChange(version: string) {
    `flex: 1` desta regra nunca teve efeito nenhum. */
 .lif-inline--half :deep(.lj-input),
 .lif-inline--half :deep(.lj-select) {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+/* Campo único na linha (URL direta do vídeo on-line): sem botão ao lado, a
+   largura toda é dele. */
+.lif-inline--solo :deep(.lj-input) {
   flex: 1 1 100%;
   min-width: 0;
 }

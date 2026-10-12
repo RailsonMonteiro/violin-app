@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   idbGetAll: vi.fn(),
   setFormField: vi.fn(),
   reloadVideos: vi.fn(),
+  saveItem: vi.fn(),
 }));
 
 vi.mock("@/modules/liturgy/i18n", () => ({
@@ -109,7 +110,7 @@ function mountForm(overrides: Partial<LiturgyItem> = {}) {
       onMusicChange: vi.fn(),
       onScheduledCategoryChange: vi.fn(),
       setMusicChoice: vi.fn(),
-      saveItem: vi.fn(),
+      saveItem: mocks.saveItem,
       confirmRemove: vi.fn(),
       openSite: vi.fn(),
       chooseFile: vi.fn(async () => {}),
@@ -134,18 +135,17 @@ describe("LiturgyItemForm — URL colada do vídeo on-line", () => {
     mocks.idbPut.mockResolvedValue(undefined);
     mocks.reloadVideos.mockResolvedValue(undefined);
   });
-
   afterEach(() => {
     wrapper?.unmount();
     wrapper = null;
   });
 
-  it("URL válida preenche o item e dispara o download, sem salvar na lista", async () => {
+  it("URL válida preenche o item, dispara o download e salva", async () => {
     wrapper = mountForm();
     const state = vm(wrapper);
 
     state.videoUrl = URL_YOUTUBE;
-    await (state.confirmVideoUrl as () => Promise<void>)();
+    await (state.salvarItem as () => Promise<void>)();
     await flushPromises();
 
     expect(mocks.setFormField).toHaveBeenCalledWith("url", URL_YOUTUBE);
@@ -157,20 +157,24 @@ describe("LiturgyItemForm — URL colada do vídeo on-line", () => {
     });
     expect(mocks.idbPut).not.toHaveBeenCalled();
     expect(mocks.snackbarInfo).toHaveBeenCalledWith("online_video.preparing", expect.anything());
+    /* O link entra no item: é o que faz o vídeo projetar no primeiro clique. */
+    expect(mocks.saveItem).toHaveBeenCalledTimes(1);
   });
 
-  it("sem YouTube, o link não entra e não há download", async () => {
+  it("sem YouTube, o link não entra e o item não é salvo", async () => {
     wrapper = mountForm();
     const state = vm(wrapper);
 
     state.videoUrl = "https://exemplo.com/qualquer";
-    await (state.confirmVideoUrl as () => Promise<void>)();
+    await (state.salvarItem as () => Promise<void>)();
     await flushPromises();
 
     expect(mocks.snackbarError).toHaveBeenCalledWith("inputs.video_url_invalid");
     expect(mocks.setFormField).not.toHaveBeenCalled();
     expect(mocks.download).not.toHaveBeenCalled();
     expect(mocks.idbPut).not.toHaveBeenCalled();
+    /* Gravar pela metade deixaria um item de vídeo on-line sem vídeo. */
+    expect(mocks.saveItem).not.toHaveBeenCalled();
   });
 
   it("URL sem protocolo ganha http:// e ainda é reconhecida como YouTube", async () => {
@@ -178,11 +182,12 @@ describe("LiturgyItemForm — URL colada do vídeo on-line", () => {
     const state = vm(wrapper);
 
     state.videoUrl = "youtu.be/dQw4w9WgXcQ";
-    await (state.confirmVideoUrl as () => Promise<void>)();
+    await (state.salvarItem as () => Promise<void>)();
     await flushPromises();
 
     expect(mocks.setFormField).toHaveBeenCalledWith("url", "http://youtu.be/dQw4w9WgXcQ");
     expect(mocks.download).toHaveBeenCalled();
+    expect(mocks.saveItem).toHaveBeenCalledTimes(1);
   });
 
   it("checkbox ligado: salva em Meus Vídeos Online e recarrega a lista", async () => {
@@ -191,7 +196,7 @@ describe("LiturgyItemForm — URL colada do vídeo on-line", () => {
 
     (state.setSaveToMyVideos as (_v: boolean) => void)(true);
     state.videoUrl = URL_YOUTUBE;
-    await (state.confirmVideoUrl as () => Promise<void>)();
+    await (state.salvarItem as () => Promise<void>)();
     await flushPromises();
 
     expect(mocks.idbPut).toHaveBeenCalledTimes(1);
@@ -202,14 +207,16 @@ describe("LiturgyItemForm — URL colada do vídeo on-line", () => {
     });
   });
 
-  it("campo vazio não faz nada", async () => {
+  it("campo vazio salva o item como está", async () => {
     wrapper = mountForm();
     const state = vm(wrapper);
 
     state.videoUrl = "   ";
-    await (state.confirmVideoUrl as () => Promise<void>)();
+    await (state.salvarItem as () => Promise<void>)();
     await flushPromises();
 
+    /* Nada colado: o salvar é o de sempre, sem link para resolver. */
+    expect(mocks.saveItem).toHaveBeenCalledTimes(1);
     expect(mocks.download).not.toHaveBeenCalled();
     expect(mocks.snackbarError).not.toHaveBeenCalled();
   });
@@ -222,12 +229,13 @@ describe("LiturgyItemForm — URL colada do vídeo on-line", () => {
     const state = vm(wrapper);
 
     state.videoUrl = URL_YOUTUBE;
-    await (state.confirmVideoUrl as () => Promise<void>)();
+    await (state.salvarItem as () => Promise<void>)();
     await flushPromises();
 
     expect(mocks.snackbarInfo).not.toHaveBeenCalled();
     // O link ainda é aceito e o item continua sendo preenchido.
     expect(mocks.setFormField).toHaveBeenCalledWith("url", URL_YOUTUBE);
+    expect(mocks.saveItem).toHaveBeenCalledTimes(1);
   });
 
   it("sem título do oEmbed, o próprio link vira o nome do item", async () => {
@@ -236,10 +244,26 @@ describe("LiturgyItemForm — URL colada do vídeo on-line", () => {
     const state = vm(wrapper);
 
     state.videoUrl = URL_YOUTUBE;
-    await (state.confirmVideoUrl as () => Promise<void>)();
+    await (state.salvarItem as () => Promise<void>)();
     await flushPromises();
 
     expect(mocks.setFormField).toHaveBeenCalledWith("item", URL_YOUTUBE);
+    expect(mocks.saveItem).toHaveBeenCalledTimes(1);
+  });
+
+  it("um clique só resolve o link uma vez", async () => {
+    wrapper = mountForm();
+    const state = vm(wrapper);
+    state.videoUrl = URL_YOUTUBE;
+
+    /* Segundo clique enquanto o primeiro resolve: o busy trava. */
+    const primeiro = (state.salvarItem as () => Promise<void>)();
+    await (state.salvarItem as () => Promise<void>)();
+    await primeiro;
+    await flushPromises();
+
+    expect(mocks.download).toHaveBeenCalledTimes(1);
+    expect(mocks.saveItem).toHaveBeenCalledTimes(1);
   });
 
   it("reabre limpo: sem URL antiga e com o checkbox desligado", async () => {
@@ -311,7 +335,7 @@ describe("LiturgyItemForm — campo de URL e escolha de catálogo se excluem", (
     expect(campoUrl(wrapper)?.props("disabled")).toBe(false);
   });
 
-  it("escolher no seletor zera o campo, senão o 'Usar' o reaplicaria", async () => {
+  it("escolher no seletor zera o campo, senão o Salvar o reaplicaria", async () => {
     wrapper = mountForm();
     const state = vm(wrapper);
     state.videoUrl = comValorNoCampo;
