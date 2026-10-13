@@ -21,6 +21,29 @@ describe("resolveMediaReference", () => {
     ).toBe("/covers/capa.bmp");
   });
 
+  it.each([
+    ["https://api.louvorja.workers.dev/file/musics/pt/Hin%C3%A1rio%20Adventista/Conta.opus"],
+    ["https://api.louvorja.com.br/file/musics/pt/Hin%C3%A1rio%20Adventista/Conta.opus"],
+  ])(
+    "manda para o armazenamento a mídia que o catálogo antigo apontava para a API: %s",
+    (legacy) => {
+      const result = resolveMediaReference(legacy);
+      expect(result?.url).toBe(
+        "https://files.louvorja.com.br/musics/pt/Hin%C3%A1rio%20Adventista/Conta.opus"
+      );
+      expect(result?.relativePath).toBe("/musics/pt/Hinário Adventista/Conta.opus");
+    }
+  );
+
+  it("não troca endereços que não são do /file da API", () => {
+    expect(resolveMediaReference("https://api.louvorja.workers.dev/params")?.url).toBe(
+      "https://api.louvorja.workers.dev/params"
+    );
+    expect(resolveMediaReference("https://files.louvorja.com.br/covers/1992.jpg")?.url).toBe(
+      "https://files.louvorja.com.br/covers/1992.jpg"
+    );
+  });
+
   it("rejeita protocolos e traversal", () => {
     expect(resolveMediaReference("ftp://cdn.louvorja.com/file.mp3")).toBeNull();
     expect(resolveMediaReference("/musics/../secret.mp3")).toBeNull();

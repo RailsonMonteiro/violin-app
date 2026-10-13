@@ -1,5 +1,17 @@
 import { API_URL_FILES } from "@/config/Api";
 
+/** Armazenamento público da mídia: o catálogo atual já aponta para ele. */
+const MEDIA_ORIGIN = "https://files.louvorja.com.br";
+
+/**
+ * Catálogos guardados antes de 11/10/2026 trazem a mídia como
+ * `https://api.louvorja.(workers.dev|com.br)/file/<caminho>`. O número do banco
+ * não mudou, então o app nunca renovou essas linhas e continuaria baixando pela
+ * API, que conta cada arquivo na cota diária. O mesmo caminho existe em
+ * `files.louvorja.com.br`.
+ */
+const LEGACY_API_FILE = /^https?:\/\/api\.louvorja\.(?:workers\.dev|com\.br)\/file\/(.+)$/i;
+
 export interface MediaReference {
   url: string;
   relativePath: string;
@@ -28,7 +40,12 @@ export function resolveMediaReference(value: string | null | undefined): MediaRe
     try {
       const parsed = new URL(raw);
       const relativePath = normalizePathname(parsed.pathname);
-      return relativePath ? { url: parsed.toString(), relativePath } : null;
+      if (!relativePath) return null;
+      const legacy = LEGACY_API_FILE.exec(parsed.origin + parsed.pathname);
+      const url = legacy
+        ? `${MEDIA_ORIGIN}/${legacy[1]}${parsed.search}`
+        : parsed.toString();
+      return { url, relativePath };
     } catch {
       return null;
     }
