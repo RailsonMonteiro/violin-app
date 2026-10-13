@@ -24,7 +24,6 @@ import {
   apiTokenHeaders,
   API_URL_FALLBACK,
   API_URL_FALLBACK_TOKEN,
-  apiOrigin,
 } from "@/config/Api";
 
 // Uma frase por queda do servidor: reabre só depois de uma resposta saudável.
@@ -116,12 +115,6 @@ const CATALOG_TABLES = [
   DB_TABLE.BIBLE_CHAPTERS,
 ];
 
-enum ENDPOINT_CATEGORIES {
-  VIDEOS_ONLINE = "collections/online",
-  DOXOLOGY = "albums/category/doxology",
-  CHILDREN = "albums/category/children",
-}
-
 /** Cache em memória — primeira camada (instantânea, mesma sessão). */
 const _memory = new Map<string, CacheEntry<unknown>>();
 const MEMORY_CACHE_BUDGET_BYTES = 32 * 1024 * 1024;
@@ -204,20 +197,10 @@ function isValidV(v: string | undefined): boolean {
 // ───────────────────────── Roteamento ─────────────────────────
 
 /**
- * URL de rede por chave. A maioria dos JSONs vive no json_db estático;
- * `_collections_online` e `_doxology_albums` são rotas REST da API (não
- * existem como arquivos em /json_db).
+ * URL de rede por chave. Tudo vive no json_db, inclusive `_collections_online`,
+ * `_doxology_albums` e `_children_albums`, que antes eram rotas REST da API.
  */
 function fetchUrlFor(file: string): string {
-  if (/^.{2}_collections_online$/.test(file)) {
-    return `${apiOrigin()}/${file.slice(0, 2)}/${ENDPOINT_CATEGORIES.VIDEOS_ONLINE}`;
-  }
-  if (/^.{2}_doxology_albums$/.test(file)) {
-    return `${apiOrigin()}/${file.slice(0, 2)}/${ENDPOINT_CATEGORIES.DOXOLOGY}`;
-  }
-  if (/^.{2}_children_albums$/.test(file)) {
-    return `${apiOrigin()}/${file.slice(0, 2)}/${ENDPOINT_CATEGORIES.CHILDREN}`;
-  }
   return $path.db(`/${file}`);
 }
 

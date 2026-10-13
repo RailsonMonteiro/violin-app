@@ -260,7 +260,7 @@ describe("Database — roteamento para tabelas normalizadas", () => {
     expect(tbl("bible_chapters").has("bible_2_39_5")).toBe(true);
   });
 
-  it("divide collections_online em canal/playlist/vídeo com referências preservadas (rota REST)", async () => {
+  it("divide collections_online em canal/playlist/vídeo com referências preservadas (json_db)", async () => {
     const payload = {
       channels: [{ channel_id: "c1", title: "Canal" }],
       playlists: [{ playlist_id: "p1", channel_id: "c1", title: "PL" }],
@@ -278,8 +278,8 @@ describe("Database — roteamento para tabelas normalizadas", () => {
 
     const out = await db.get("pt_collections_online");
     expect(out).toEqual(payload);
-    // Fonte é a rota REST da API, não o json_db estático.
-    expect(seenUrl.startsWith("https://api.test/pt/collections/online")).toBe(true);
+    // A chave vem do json_db, como as demais; a rota REST foi descontinuada.
+    expect(seenUrl.startsWith("https://db.test/pt_collections_online")).toBe(true);
 
     expect(dataIds("online_videos_channels", "pt_collections_online")).toEqual(["c1"]);
     expect(dataIds("online_videos_playlists", "pt_collections_online")).toEqual(["p1"]);

@@ -417,12 +417,11 @@ sem alteração:
 | `{locale}_doxology_albums` · `{locale}_children_albums` | doxology_albums / children_albums       | itens (1 linha/álbum)          |
 | demais                                                  | cache                                   | registro único                 |
 
-**URLs de rede por chave** (`fetchUrlFor`): a maioria vem do json_db estático
-(`Path.db`); `_collections_online`, `_doxology_albums` e `_children_albums`
-são **rotas REST** da API (`{origin}/{lang}/collections/online`,
-`{origin}/{lang}/albums/category/doxology` e
-`{origin}/{lang}/albums/category/children`, onde origin é `API_URL` de `config/Api.ts`)
-e não existem como arquivos em `/json_db`.
+**URLs de rede por chave** (`fetchUrlFor`): todas vêm do json_db (`Path.db`),
+inclusive `_collections_online`, `_doxology_albums` e `_children_albums`. Essas
+três eram rotas REST da API (`/{lang}/collections/online` e
+`/{lang}/albums/category/{doxology,children}`, hoje descontinuadas) e agora são
+chaves `/json_db/{lang}_collections_online`, `_doxology_albums` e `_children_albums`.
 Toda resposta 200 é injetada automaticamente no IDB via `writeRouted`.
 
 - **Registro de item**: `{ id: "{chave}:{id}", file, dataId, seq, data, ts, v }` —
@@ -977,7 +976,7 @@ Duas fontes de vídeos YouTube projetáveis, mescladas na liturgia:
 
 ### Módulo `online_videos` (catálogo da API)
 
-- Fonte: `GET <API>/{locale}/collections/online`
+- Fonte: `GET <API>/json_db/{locale}_collections_online`
   → `{ channels[], playlists[], videos[] }`; cada vídeo:
   `{ video_id, playlist_id, title, sequence, default_image }`.
 - **Cache**: resposta inteira gravada no IDB sob a chave
