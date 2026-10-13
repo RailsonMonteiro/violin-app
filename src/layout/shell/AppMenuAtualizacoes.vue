@@ -120,7 +120,6 @@
         </div>
         <div class="opt-folder-actions">
           <button
-            v-requires-network
             type="button"
             class="opt-btn"
             :disabled="['checking', 'applying', 'unsupported'].includes(pwa.state.value.status)"
@@ -542,17 +541,26 @@ async function openPackageFile(): Promise<void> {
   }
 }
 
+// `no-store`: é a pergunta "saiu versão nova?"; uma resposta guardada pelo
+// navegador responderia com a versão de antes.
+function _fetchConfigFrom(base: string, token: string, source: string): Promise<Response> {
+  const url = `${base}/config`;
+  return fetchWithTimeout(url, {
+    headers: apiTokenHeaders(token, url),
+    cache: "no-store",
+    source,
+  });
+}
+
 async function _fetchDbConfig(): Promise<Response> {
   try {
-    const res = await fetchWithTimeout(`${API_URL_DB}/config`, {
-      headers: apiTokenHeaders(API_TOKEN, `${API_URL_DB}/config`),
-      source: "db-config",
-    });
+    const res = await _fetchConfigFrom(API_URL_DB, API_TOKEN, "db-config");
     if (!res.ok && API_URL_FALLBACK) {
-      return await fetchWithTimeout(`${API_URL_DB_FALLBACK}/config`, {
-        headers: apiTokenHeaders(API_URL_FALLBACK_TOKEN, `${API_URL_DB_FALLBACK}/config`),
-        source: "db-config-fallback",
-      });
+      return await _fetchConfigFrom(
+        API_URL_DB_FALLBACK,
+        API_URL_FALLBACK_TOKEN,
+        "db-config-fallback"
+      );
     }
     return res;
   } catch (e) {
@@ -560,10 +568,11 @@ async function _fetchDbConfig(): Promise<Response> {
     // sem este catch, uma falha transitória no host principal nunca
     // chegava a tentar o legado, mesmo com ele configurado.
     if (!API_URL_FALLBACK) throw e;
-    return await fetchWithTimeout(`${API_URL_DB_FALLBACK}/config`, {
-      headers: apiTokenHeaders(API_URL_FALLBACK_TOKEN, `${API_URL_DB_FALLBACK}/config`),
-      source: "db-config-fallback",
-    });
+    return await _fetchConfigFrom(
+      API_URL_DB_FALLBACK,
+      API_URL_FALLBACK_TOKEN,
+      "db-config-fallback"
+    );
   }
 }
 
@@ -619,23 +628,19 @@ async function checkDbUpdate(): Promise<void> {
   }
 }
 
+// Web e desktop instalam o mesmo pacote do catálogo. O ramo web antigo só
+// invalidava o `config`: a tela passava a dizer "Banco atualizado" e as
+// músicas, hinários e álbuns continuavam na versão de antes.
 async function applyDbUpdate(): Promise<void> {
-  if (isDesktop.value) {
-    const ok = await sync.downloadBundle({ catalogOnly: true });
-    if (!ok) return;
-    dbCacheCleared.value = true;
-    dbCurrentConfig.value = dbLatestConfig.value;
-    await new Promise<void>((r) => setTimeout(r, 1000));
-    window.location.reload();
-  } else {
-    sessionStorage.clear();
-    $database.invalidate("config");
-    dbCacheCleared.value = true;
-    dbStatus.value = "ok";
-    dbCurrentConfig.value = dbLatestConfig.value;
-    await new Promise<void>((r) => setTimeout(r, 2000));
-    window.location.reload();
+  const ok = await sync.downloadBundle({ catalogOnly: true });
+  if (!ok) {
+    Snackbar.warning(t("startup_check.bundle_cancel"));
+    return;
   }
+  dbCacheCleared.value = true;
+  dbCurrentConfig.value = dbLatestConfig.value;
+  await new Promise<void>((r) => setTimeout(r, 1000));
+  window.location.reload();
 }
 
 function formatLastCheck(iso: string): string {
@@ -644,8 +649,8 @@ function formatLastCheck(iso: string): string {
 }
 
 async function clearDbCache(): Promise<void> {
-  sessionStorage.clear();
-  $database.invalidate(); // memória + tabela db_cache inteira
+  // O sessionStorage guarda o rascunho do editor de slides, não o banco.
+  await $database.invalidateAll(); // memória + IndexedDB + cópia do service worker
   dbCacheCleared.value = true;
   setTimeout(() => {
     dbCacheCleared.value = false;

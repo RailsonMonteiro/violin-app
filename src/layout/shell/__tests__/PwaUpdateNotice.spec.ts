@@ -83,7 +83,7 @@ describe("aviso persistente de atualização PWA", () => {
 
     probe.state.value = { status: "error", ready: true, lastCheckedAt: null };
     await nextTick();
-    expect(wrapper.text()).toContain("Não foi possível concluir a atualização");
+    expect(wrapper.text()).toContain("Não foi possível verificar ou aplicar a atualização do app");
     expect(wrapper.get("button").attributes("disabled")).toBeUndefined();
     wrapper.unmount();
   });

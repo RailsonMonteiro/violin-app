@@ -204,6 +204,31 @@ function fetchUrlFor(file: string): string {
   return $path.db(`/${file}`);
 }
 
+/** Cache do service worker que atende os JSONs do banco (rota em vite.config.js). */
+const SW_DB_CACHE = "louvorja-db";
+
+/**
+ * Apaga a cópia do service worker. A rota dele é stale-while-revalidate e o
+ * cache-buster do fetch muda só por dia: sem isto, depois de invalidar o
+ * IndexedDB o próximo `get` recebia de volta o JSON antigo e o regravava.
+ */
+async function purgeServiceWorkerCopy(file?: string): Promise<void> {
+  if (typeof caches === "undefined") return;
+  try {
+    if (!file) {
+      await caches.delete(SW_DB_CACHE);
+      return;
+    }
+    if (!(await caches.has(SW_DB_CACHE))) return;
+    const cache = await caches.open(SW_DB_CACHE);
+    const url = fetchUrlFor(file);
+    const urls = API_URL_FALLBACK ? [url, url.replace(API_URL, API_URL_FALLBACK)] : [url];
+    await Promise.all(urls.map((u) => cache.delete(u, { ignoreSearch: true })));
+  } catch {
+    // Sem Cache Storage (modo privado, política do navegador): nada a apagar.
+  }
+}
+
 type RoutedKind = "items" | "detail-music" | "single" | "composite-online";
 
 interface Route {
@@ -625,10 +650,12 @@ export default {
       _memory.clear();
       _memoryBytes = 0;
       for (const t of CATALOG_TABLES) void $idb.clear(t);
+      void purgeServiceWorkerCopy();
       $dev.write("Cache do DB limpo (tudo)");
       return;
     }
     memoryDelete(file);
+    void purgeServiceWorkerCopy(file);
     const r = routeFor(file);
     if (!r) {
       void $idb.del(DB_TABLE.CACHE, file);
@@ -654,7 +681,10 @@ export default {
   async invalidateAll(): Promise<void> {
     _memory.clear();
     _memoryBytes = 0;
-    await Promise.all(CATALOG_TABLES.map((t) => $idb.clear(t)));
+    await Promise.all([
+      ...CATALOG_TABLES.map((t) => $idb.clear(t)),
+      purgeServiceWorkerCopy(),
+    ]);
     $dev.write("Cache do DB limpo (tudo, aguardado)");
   },
 

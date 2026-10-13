@@ -426,7 +426,7 @@
       "pwa_offline": "Conéctate a internet para buscar actualizaciones de la app.",
       "pwa_ready": "Actualización de la app lista",
       "pwa_applying": "Preparando actualización…",
-      "pwa_error": "No se pudo completar la actualización. Inténtalo de nuevo.",
+      "pwa_error": "No se pudo comprobar ni aplicar la actualización de la app. Inténtalo de nuevo.",
       "pwa_unsupported": "Este navegador no ofrece actualizaciones sin conexión de la app.",
       "pwa_apply": "Actualizar y recargar",
       "pwa_reload_hint": "Guarda tus cambios antes de actualizar. La página se recargará.",

@@ -11,9 +11,7 @@ const require_ = createRequire(import.meta.url);
 const { version: packageVersion } = require_("./package.json");
 const { version: posthogSdkPackageVersion } = require_("posthog-js/package.json");
 
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+const { escapeRegex, dbCachePattern } = require_("./config/swDbRoute.cjs");
 
 // https://vitejs.dev/config/
 export default async ({ mode }) => {
@@ -154,11 +152,11 @@ export default async ({ mode }) => {
     // Quando VITE_URL_* está definido, usa padrão preciso de URL; caso contrário, cai
     // em padrão por extensão (amplo mas seguro para este app de apresentação).
     const runtimeCaching = [
-      // JSONs do banco — serve do cache enquanto atualiza em background
+      // JSONs do banco — serve do cache enquanto atualiza em background (menos o `config`)
       ...(dbUrl
         ? [
             {
-              urlPattern: new RegExp(`^${escapeRegex(dbUrl)}`),
+              urlPattern: dbCachePattern(dbUrl),
               handler: "StaleWhileRevalidate",
               options: {
                 cacheName: "louvorja-db",

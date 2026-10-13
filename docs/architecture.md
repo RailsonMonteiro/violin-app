@@ -59,6 +59,13 @@ são descartados inteiros. HTML, SW e dados do usuário não entram na retençã
 Isso mantém imports de abas antigas durante essa janela; não garante uso offline
 de uma aba antiga após a troca do SW nem retenção indefinida.
 
+O banco segue outra regra: os JSONs de `json_db` passam por stale-while-revalidate
+no SW (`louvorja-db`), exceto o `config`, que é a pergunta "saiu versão nova?" e vai
+sempre à rede (`config/swDbRoute.cjs`). "Atualizar agora" instala o pacote do
+catálogo no web como no desktop, e `Database.invalidate*` também apaga a cópia do
+SW — sem isso o próximo `get` regravava o JSON antigo. Nenhuma dessas ações limpa o
+`sessionStorage`, onde fica o rascunho do editor de slides.
+
 ## Armazenamento desktop
 
 No desktop, todos os dados persistentes ficam em uma raiz única, por padrão

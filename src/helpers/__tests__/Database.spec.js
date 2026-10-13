@@ -3,7 +3,7 @@
  * roteamento para tabelas normalizadas por entidade, gravação incremental
  * (diff), migração do formato legado e stale-if-error.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 
 // IDB em memória — tabelas separadas, simulando persistência entre "restarts".
@@ -313,6 +313,68 @@ describe("Database — invalidação e legado", () => {
 
     db.invalidate();
     await vi.waitFor(() => expect(tbl("musics").size).toBe(0));
+  });
+
+  describe("cópia do service worker", () => {
+    let swEntries;
+    let swCaches;
+
+    beforeEach(() => {
+      swEntries = new Set([
+        "https://db.test/pt_musics?20261013",
+        "https://db.test/es_musics?20261013",
+      ]);
+      const cache = {
+        delete: vi.fn(async (url, options) => {
+          const path = url.split("?")[0];
+          const alvos = [...swEntries].filter((u) =>
+            options?.ignoreSearch ? u.split("?")[0] === path : u === url
+          );
+          alvos.forEach((u) => swEntries.delete(u));
+          return alvos.length > 0;
+        }),
+      };
+      swCaches = {
+        has: vi.fn(async (name) => name === "louvorja-db"),
+        open: vi.fn(async () => cache),
+        delete: vi.fn(async () => {
+          swEntries.clear();
+          return true;
+        }),
+      };
+      vi.stubGlobal("caches", swCaches);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("invalidate(file) apaga a cópia daquele dataset, e só dela", async () => {
+      const db = await importDatabase();
+      db.invalidate("pt_musics");
+
+      await vi.waitFor(() =>
+        expect([...swEntries]).toEqual(["https://db.test/es_musics?20261013"])
+      );
+    });
+
+    it("invalidateAll() descarta o cache do service worker inteiro", async () => {
+      const db = await importDatabase();
+      await db.invalidateAll();
+
+      expect(swCaches.delete).toHaveBeenCalledWith("louvorja-db");
+      expect(swEntries.size).toBe(0);
+    });
+
+    it("sem Cache Storage, invalidar continua funcionando", async () => {
+      vi.stubGlobal("caches", undefined);
+      fetchMock.mockResolvedValue(jsonResponse([{ id_music: 1 }]));
+      const db = await importDatabase();
+      await db.get("pt_musics");
+
+      expect(() => db.invalidate("pt_musics")).not.toThrow();
+      await expect(db.invalidateAll()).resolves.toBeUndefined();
+    });
   });
 
   it("migra blob legado da tabela cache para as tabelas novas na primeira leitura", async () => {
