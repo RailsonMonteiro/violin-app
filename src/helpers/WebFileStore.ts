@@ -14,7 +14,7 @@
 import { createAdaptiveConcurrency } from "@root/electron/main/download/adaptiveConcurrency.mjs";
 import { API_URL } from "@/config/Api";
 import { fetchWithTimeout, NET_TIMEOUT } from "@/helpers/Http";
-import { resolveMediaReference } from "@/helpers/MediaUrl";
+import { currentUrlOfLegacyMedia, resolveMediaReference } from "@/helpers/MediaUrl";
 
 export const AUDIO_CACHE = "louvorja-audio";
 export const IMAGE_CACHE = "louvorja-images";
@@ -35,7 +35,10 @@ export function webConcurrencyBounds(nav: Navigator | undefined = globalThis.nav
   if (conn?.saveData || /^(slow-)?2g$/.test(conn?.effectiveType ?? "")) return { start: 2, max: 2 };
   if (conn?.effectiveType === "3g") return { start: 2, max: 3 };
   const weak = (memory !== undefined && memory <= 2) || cores <= 2;
-  return weak ? { start: 3, max: 4 } : { start: 4, max: 8 };
+  // O armazenamento fala HTTP/2: vários arquivos dividem uma conexão, então o
+  // teto pode ser maior que o limite de seis conexões por host do HTTP/1.1. O
+  // controlador só sobe enquanto a vazão melhora.
+  return weak ? { start: 3, max: 4 } : { start: 4, max: 16 };
 }
 
 export interface WebFileEntry {
@@ -204,7 +207,7 @@ async function runQueue(
   let paused: Promise<void> | null = null;
   let gaveUp = false;
   const { start, max } = webConcurrencyBounds();
-  const adaptive = createAdaptiveConcurrency({ min: 2, start, max });
+  const adaptive = createAdaptiveConcurrency({ min: 2, start, max, ramp: "geometric" });
   let peakLimit = adaptive.limit();
 
   const fail = (item: QueueItem, message: string) => {
@@ -295,6 +298,34 @@ async function runQueue(
     })
     .catch(() => {});
   onQueueDone.emit({ downloaded, failed });
+}
+
+/**
+ * Os arquivos baixados antes do catálogo passar a apontar para o armazenamento
+ * ficaram guardados com a URL do `/file` da API. O player e o service worker
+ * agora pedem a URL nova; sem mudar a chave, tocar offline deixaria de achar o
+ * que já estava baixado. Copia para a chave nova e apaga a antiga.
+ */
+export async function migrateLegacyMediaKeys(): Promise<number> {
+  if (!isWebFileStoreSupported()) return 0;
+  let moved = 0;
+  for (const name of [AUDIO_CACHE, IMAGE_CACHE]) {
+    const cache = await caches.open(name);
+    for (const request of await cache.keys()) {
+      const target = currentUrlOfLegacyMedia(request.url);
+      if (!target) continue;
+      const response = await cache.match(request.url, { ignoreVary: true });
+      if (!response) continue;
+      if (await cache.match(target, { ignoreVary: true })) {
+        discardResponseBody(response);
+      } else {
+        await cache.put(target, response);
+      }
+      await cache.delete(request.url, { ignoreVary: true });
+      moved += 1;
+    }
+  }
+  return moved;
 }
 
 export const webDownload = {

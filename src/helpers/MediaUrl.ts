@@ -12,6 +12,21 @@ const MEDIA_ORIGIN = "https://files.louvorja.com.br";
  */
 const LEGACY_API_FILE = /^https?:\/\/api\.louvorja\.(?:workers\.dev|com\.br)\/file\/(.+)$/i;
 
+/**
+ * Endereço atual de uma mídia que ainda aponta para o `/file` da API, ou `null`
+ * quando o endereço já é outro. O Cache Storage da web é indexado por URL, então
+ * quem guardou arquivos com o endereço antigo precisa mudar a chave junto.
+ */
+export function currentUrlOfLegacyMedia(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const legacy = LEGACY_API_FILE.exec(parsed.origin + parsed.pathname);
+    return legacy ? `${MEDIA_ORIGIN}/${legacy[1]}${parsed.search}` : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface MediaReference {
   url: string;
   relativePath: string;
@@ -41,10 +56,7 @@ export function resolveMediaReference(value: string | null | undefined): MediaRe
       const parsed = new URL(raw);
       const relativePath = normalizePathname(parsed.pathname);
       if (!relativePath) return null;
-      const legacy = LEGACY_API_FILE.exec(parsed.origin + parsed.pathname);
-      const url = legacy
-        ? `${MEDIA_ORIGIN}/${legacy[1]}${parsed.search}`
-        : parsed.toString();
+      const url = currentUrlOfLegacyMedia(parsed.toString()) ?? parsed.toString();
       return { url, relativePath };
     } catch {
       return null;

@@ -25,6 +25,9 @@ class FakeCache {
   async delete(url: string) {
     return this.items.delete(url);
   }
+  async keys() {
+    return [...this.items.keys()].map((url) => ({ url }));
+  }
 }
 const stores = new Map<string, FakeCache>();
 
@@ -32,6 +35,7 @@ import {
   AUDIO_CACHE,
   IMAGE_CACHE,
   requestPersistence,
+  migrateLegacyMediaKeys,
   webDownload,
   webStorage,
   webStorageUsage,
@@ -67,6 +71,47 @@ beforeEach(() => {
     delete: async (name: string) => stores.delete(name),
   });
   vi.stubGlobal("navigator", { storage: { persist: async () => true } });
+});
+
+describe("migração das chaves antigas do /file", () => {
+  it("troca a URL da API pela do armazenamento, com a query, sem tocar no resto", async () => {
+    const audio = new FakeCache();
+    const images = new FakeCache();
+    stores.set(AUDIO_CACHE, audio);
+    stores.set(IMAGE_CACHE, images);
+    audio.items.set(
+      "https://api.louvorja.workers.dev/file/musics/pt/A/x.opus",
+      new Response("a")
+    );
+    audio.items.set("https://files.louvorja.com.br/musics/pt/A/ja.opus", new Response("b"));
+    images.items.set("https://api.louvorja.com.br/file/covers/1.jpg?v=2", new Response("c"));
+
+    const moved = await migrateLegacyMediaKeys();
+
+    expect(moved).toBe(2);
+    expect([...audio.items.keys()].sort()).toEqual([
+      "https://files.louvorja.com.br/musics/pt/A/ja.opus",
+      "https://files.louvorja.com.br/musics/pt/A/x.opus",
+    ]);
+    expect([...images.items.keys()]).toEqual(["https://files.louvorja.com.br/covers/1.jpg?v=2"]);
+    expect(await (await audio.match("https://files.louvorja.com.br/musics/pt/A/x.opus"))!.text()).toBe(
+      "a"
+    );
+  });
+
+  it("não sobrescreve quem já existe na chave nova", async () => {
+    const audio = new FakeCache();
+    stores.set(AUDIO_CACHE, audio);
+    audio.items.set("https://api.louvorja.com.br/file/musics/pt/A/x.opus", new Response("velho"));
+    audio.items.set("https://files.louvorja.com.br/musics/pt/A/x.opus", new Response("novo"));
+
+    await migrateLegacyMediaKeys();
+
+    expect([...audio.items.keys()]).toEqual(["https://files.louvorja.com.br/musics/pt/A/x.opus"]);
+    expect(await (await audio.match("https://files.louvorja.com.br/musics/pt/A/x.opus"))!.text()).toBe(
+      "novo"
+    );
+  });
 });
 
 describe("WebFileStore", () => {

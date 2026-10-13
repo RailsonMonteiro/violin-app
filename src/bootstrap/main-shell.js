@@ -22,7 +22,7 @@ import $alert from "@helpers/Alert";
 import Platform from "@/helpers/Platform";
 import WakeLock from "@/helpers/WakeLock";
 import { installFileDrop } from "@/helpers/FileDrop";
-import { requestPersistence } from "@/helpers/WebFileStore";
+import { migrateLegacyMediaKeys, requestPersistence } from "@/helpers/WebFileStore";
 import { initAppInstall } from "@/composables/useAppInstall";
 import {
   API_URL,
@@ -2360,6 +2360,29 @@ $storage.hydrate().then(async () => {
       // abriria um aviso de permissão no meio do boot.
       if (window.matchMedia?.("(display-mode: standalone)").matches) void requestPersistence();
       initAppInstall();
+
+      // Mídia baixada com o endereço antigo da API passa para a chave nova, uma
+      // vez, fora do caminho crítico do boot.
+      const MIGRATION_FLAG = "lj:media-keys:v1";
+      let migrated = false;
+      try {
+        migrated = window.localStorage.getItem(MIGRATION_FLAG) === "1";
+      } catch {
+        migrated = false;
+      }
+      if (!migrated) {
+        setTimeout(() => {
+          migrateLegacyMediaKeys()
+            .then(() => {
+              try {
+                window.localStorage.setItem(MIGRATION_FLAG, "1");
+              } catch {
+                /* sem armazenamento: roda de novo no próximo boot */
+              }
+            })
+            .catch((e) => console.warn("[WebFileStore] migração de chaves falhou:", e));
+        }, 8000);
+      }
     }
 
     // Observabilidade de uso e diagnóstico. Não bloqueia o boot e é no-op em
