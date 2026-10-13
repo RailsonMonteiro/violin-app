@@ -76,7 +76,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="music in filteredMusics" :key="music.id_music">
+            <tr v-for="music in filteredMusics" :key="music.id_music" class="lj-music-row">
               <td class="ch-track">{{ music.track }}</td>
               <td>
                 <span class="ch-music-name">{{ music.name }}</span>

@@ -53,7 +53,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in tracks" :key="item.id_music">
+          <tr v-for="item in tracks" :key="item.id_music" class="lj-music-row">
             <td class="album-track-number">{{ item.track ?? "" }}</td>
             <td>
               <span class="album-track-name">{{ item.name }}</span>

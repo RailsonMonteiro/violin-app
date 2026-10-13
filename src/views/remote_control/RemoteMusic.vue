@@ -16,7 +16,7 @@
         <li
           v-for="m in musicResults"
           :key="m.custom_song_id || m.id_music"
-          class="rm-item"
+          class="rm-item lj-music-row"
           @click="openVersionPicker(m)"
         >
           <div class="rm-item__text">
@@ -60,7 +60,12 @@
       <ul v-if="rows.length > 0" class="rm-list">
         <template v-for="row in rows" :key="row.key">
           <li v-if="row.kind === 'group'" class="rm-group">{{ row.label }}</li>
-          <li v-else class="rm-item" @click="row.action()">
+          <li
+            v-else
+            class="rm-item"
+            :class="{ 'lj-music-row': row.playable }"
+            @click="row.action()"
+          >
             <img v-if="row.thumb" class="rm-item__thumb" :src="row.thumb" loading="lazy" alt="" />
             <LjIcon
               v-else-if="row.icon"
@@ -448,7 +453,7 @@ defineExpose({ refresh: fetchAlbums });
   cursor: pointer;
 }
 
-.rm-item:hover {
+.rm-item:not(.lj-music-row):hover {
   background: var(--lj-surface-bg-hover);
 }
 

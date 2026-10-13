@@ -17,7 +17,7 @@
       role="list"
     >
       <template #item="{ element }">
-        <div class="music-list-item" role="listitem">
+        <div class="music-list-item lj-music-row" role="listitem">
           <LjIcon class="drag-handle" :icon="ICONS.ACTIONS.DRAG" size="small" color="grey" />
           <div class="music-list-item-info">
             <span class="music-list-item-name">{{ musicTitle(element) }}</span>
@@ -125,11 +125,6 @@ function close() {}
   min-height: 36px;
   padding: var(--lj-space-3) var(--lj-space-5);
   border-bottom: 1px solid var(--lj-surface-divider);
-  transition: background var(--lj-transition-fast);
-}
-
-.music-list-item:hover {
-  background: var(--lj-surface-bg-hover);
 }
 
 .drag-handle {
