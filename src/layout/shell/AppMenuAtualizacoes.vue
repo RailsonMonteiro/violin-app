@@ -546,7 +546,7 @@ async function openPackageFile(): Promise<void> {
 function _fetchConfigFrom(base: string, token: string, source: string): Promise<Response> {
   const url = `${base}/config`;
   return fetchWithTimeout(url, {
-    headers: apiTokenHeaders(token, url),
+    headers: apiTokenHeaders(token),
     cache: "no-store",
     source,
   });

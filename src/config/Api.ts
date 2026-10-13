@@ -69,22 +69,17 @@ export function apiOrigin(): string {
   return API_URL;
 }
 
-const OFFICIAL_API_HOST = /(^|\.)louvorja\.(workers\.dev|com\.br)$/i;
-
 /**
- * Cabeçalho `Api-Token` para uma URL. A API oficial é pública e ignora o token,
- * e esse cabeçalho não é "simples" para o CORS: cada URL diferente do catálogo
- * ganhava um pré-voo `OPTIONS`, que também é uma invocação do Worker na cota
- * diária. Só se manda para servidores próprios que ainda exijam o token.
+ * O servidor configurado exige o cabeçalho `Api-Token`? A API oficial é
+ * pública e o ignora; mandá-lo só obriga o navegador a um pré-voo `OPTIONS`
+ * antes de cada GET, e cada pré-voo também é uma requisição na cota diária.
+ * Quem hospeda a própria API e a protege com token liga `VITE_API_TOKEN_REQUIRED`.
  */
-export function apiTokenHeaders(token: string, url: string): Record<string, string> {
-  if (!token) return {};
-  try {
-    if (OFFICIAL_API_HOST.test(new URL(url).hostname)) return {};
-  } catch {
-    return {};
-  }
-  return { "Api-Token": token };
+const API_TOKEN_REQUIRED: boolean = import.meta.env.VITE_API_TOKEN_REQUIRED === "true";
+
+/** Cabeçalho de autenticação das buscas ao banco; vazio quando não há o que enviar. */
+export function apiTokenHeaders(token: string): Record<string, string> {
+  return API_TOKEN_REQUIRED && token ? { "Api-Token": token } : {};
 }
 
 /**

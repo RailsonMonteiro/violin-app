@@ -60,10 +60,22 @@ URL resultante: `{VITE_URL_API}{VITE_PATH_FILES}`
 | Exemplo     | *(obtido com o administrador)*           |
 | Usado em    | `config/Api.ts`, `main.js`              |
 
-Token enviado como header `Api-Token` em todas as requisições ao servidor louvorja.
-A API (`api.louvorja.workers.dev` e `api.louvorja.com.br`, ambas atendidas pelo mesmo Worker)
-é somente leitura e não exige token — o header é enviado assim mesmo e simplesmente ignorado.
-Em desenvolvimento com servidor local (`npm run files`), pode ser deixado vazio.
+Token enviado como header `Api-Token` nas buscas ao banco, **somente** quando
+`VITE_API_TOKEN_REQUIRED=true`. A API oficial (`api.louvorja.workers.dev` e
+`api.louvorja.com.br`, atendidas pelo mesmo Worker) é pública e ignora o header; o
+padrão é não enviá-lo, porque ele obriga o navegador a um pré-voo CORS (`OPTIONS`) antes
+de cada GET, e cada pré-voo também conta na cota diária da API.
+
+### `VITE_API_TOKEN_REQUIRED`
+
+| Campo       | Valor                                    |
+|-------------|------------------------------------------|
+| Tipo        | `"true"` (qualquer outro valor desliga)  |
+| Padrão      | desligado                                |
+| Usado em    | `config/Api.ts`                          |
+
+Ligue só ao hospedar a própria API com proteção por token. Com ele, o app envia
+`VITE_API_TOKEN` (e `VITE_URL_API_FALLBACK_TOKEN` no fallback) como `Api-Token`.
 
 ---
 
@@ -259,7 +271,8 @@ O script `npm run electron:build` injetará essa variável automaticamente.
 | `VITE_URL_API`          | Sim         | —                            | `import.meta.env`  |
 | `VITE_PATH_JSON_DB`     | Não         | `/json_db`                   | `import.meta.env`  |
 | `VITE_PATH_FILES`       | Não         | `/file`                      | `import.meta.env`  |
-| `VITE_API_TOKEN`        | Sim (prod)  | *(sem auth em dev local)*    | `import.meta.env`  |
+| `VITE_API_TOKEN`        | Não         | *(sem auth em dev local)*    | `import.meta.env`  |
+| `VITE_API_TOKEN_REQUIRED` | Não       | desligado                    | `import.meta.env`  |
 | `VITE_URL_API_FALLBACK` | Não         | *(vazio)*                    | `import.meta.env`  |
 | `VITE_URL_MEDIA`        | Não         | `https://files.louvorja.com.br` | `import.meta.env`  |
 | `VITE_URL_API_FALLBACK_TOKEN` | Não  | herda `VITE_API_TOKEN`       | `import.meta.env`  |

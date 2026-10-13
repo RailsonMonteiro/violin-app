@@ -47,8 +47,7 @@ vi.mock("@/config/Api", () => ({
   API_TOKEN: "t",
   API_URL_FALLBACK: "",
   API_URL_FALLBACK_TOKEN: "",
-  apiTokenHeaders: (token: string, url: string) =>
-    token && !/louvorja\.(workers\.dev|com\.br)/.test(url) ? { "Api-Token": token } : {},
+  apiTokenHeaders: (token: string) => (token ? { "Api-Token": token } : {}),
 }));
 
 // A semântica de instalação (um capítulo por vez e marker por último) não

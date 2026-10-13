@@ -93,7 +93,7 @@ export default {
     abortCheck(signal);
     const fetchFrom = (api: string, token: string) =>
       fetchWithTimeout(bundleUrl(api, kind), {
-        headers: apiTokenHeaders(token, bundleUrl(api, kind)),
+        headers: apiTokenHeaders(token),
         signal,
         cache: "no-store",
         timeout: NET_TIMEOUT.MEDIA,
@@ -428,7 +428,7 @@ export default {
       source: string
     ): Promise<RemoteBundleConfig | null> => {
       const res = await fetchWithTimeout(url, {
-        headers: apiTokenHeaders(token, url),
+        headers: apiTokenHeaders(token),
         cache: "no-store",
         source,
       });

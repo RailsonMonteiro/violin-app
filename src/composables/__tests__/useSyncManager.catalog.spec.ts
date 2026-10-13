@@ -277,6 +277,27 @@ describe("catálogo renovado a cada versão do app", () => {
     expect(h.fullInstall).not.toHaveBeenCalled();
   });
 
+  it("listar arquivos para baixar espera o catálogo da versão atual chegar", async () => {
+    h.needsRefresh.mockResolvedValueOnce(true).mockResolvedValue(false);
+    const sync = await mountSync();
+
+    const files = await sync.collectAlbumFileList(7);
+
+    expect(h.events.indexOf("bundle")).toBeGreaterThanOrEqual(0);
+    expect(h.events.indexOf("bundle")).toBeLessThan(h.events.indexOf("get:album_7"));
+    expect(files.length).toBeGreaterThan(0);
+  });
+
+  it("a leitura local do scan nunca dispara a renovação", async () => {
+    h.needsRefresh.mockResolvedValue(true);
+    const sync = await mountSync();
+
+    await sync.collectAlbumFileList(7, { localOnly: true });
+
+    expect(h.needsRefresh).not.toHaveBeenCalled();
+    expect(h.fullInstall).not.toHaveBeenCalled();
+  });
+
   it("falha na rede mantém o catálogo e não insiste no mesmo boot", async () => {
     h.needsRefresh.mockResolvedValue(true);
     h.fullInstall.mockRejectedValue(new Error("offline"));

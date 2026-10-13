@@ -560,7 +560,7 @@ function fetchAndStore<T>(file: string, fresh: boolean): Promise<T | null> {
     let response: Response;
     try {
       response = await fetchWithTimeout(`${url}${cacheBuster}`, {
-        headers: apiTokenHeaders(API_TOKEN, url),
+        headers: apiTokenHeaders(API_TOKEN),
         source: "database",
       });
     } catch (primaryError) {
@@ -570,7 +570,7 @@ function fetchAndStore<T>(file: string, fresh: boolean): Promise<T | null> {
       if (!fallbackUrl || fallbackUrl === url) throw primaryError;
       $dev.write("Fallback DB", `${fallbackUrl}${cacheBuster}`);
       response = await fetchWithTimeout(`${fallbackUrl}${cacheBuster}`, {
-        headers: apiTokenHeaders(API_URL_FALLBACK_TOKEN, fallbackUrl),
+        headers: apiTokenHeaders(API_URL_FALLBACK_TOKEN),
         source: "database-fallback",
       });
     }
@@ -580,7 +580,7 @@ function fetchAndStore<T>(file: string, fresh: boolean): Promise<T | null> {
     if (!response.ok && fallbackUrl && fallbackUrl !== url) {
       $dev.write("Fallback DB", `${fallbackUrl}${cacheBuster}`);
       response = await fetchWithTimeout(`${fallbackUrl}${cacheBuster}`, {
-        headers: apiTokenHeaders(API_URL_FALLBACK_TOKEN, fallbackUrl),
+        headers: apiTokenHeaders(API_URL_FALLBACK_TOKEN),
         source: "database-fallback",
       });
     }

@@ -73,7 +73,7 @@ async function fetchBuffer(
   signal?: AbortSignal
 ): Promise<ArrayBuffer> {
   const response = await fetchWithTimeout(url, {
-    headers: apiTokenHeaders(token, url),
+    headers: apiTokenHeaders(token),
     signal,
     cache: "no-store",
     timeout: NET_TIMEOUT.MEDIA,

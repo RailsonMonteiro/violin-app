@@ -827,6 +827,7 @@ export function useSyncManager() {
     selectedHymnal1996 = false,
     hymnal1996Ids: number[] = []
   ): Promise<FileEntry[]> {
+    await refreshCatalogAfterUpdate().catch(() => false);
     const files = new Map<string, FileEntry>();
     const albumIds = [...selectedAlbums];
     const allMusicIds = new Set<number>();
@@ -864,6 +865,9 @@ export function useSyncManager() {
     albumId: number,
     { localOnly = false }: { localOnly?: boolean } = {}
   ): Promise<FileEntry[]> {
+    // Montar a lista a partir de um catálogo de versão anterior baixaria pelos
+    // endereços antigos; a leitura local do scan não deve gerar rede.
+    if (!localOnly) await refreshCatalogAfterUpdate().catch(() => false);
     const files = new Map<string, FileEntry>();
     const album = await fetchJson<MusicData>(`album_${albumId}`, { localOnly });
     if (!album) return [];

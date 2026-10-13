@@ -1,32 +1,35 @@
-import { describe, expect, it } from "vitest";
-import { apiTokenHeaders } from "@/config/Api";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+async function load() {
+  vi.resetModules();
+  return (await import("@/config/Api")).apiTokenHeaders;
+}
 
 describe("apiTokenHeaders", () => {
-  it.each([
-    "https://api.louvorja.workers.dev/json_db/config",
-    "https://api.louvorja.com.br/json_db/music_1",
-    "https://files.louvorja.com.br/json_db/config.json",
-  ])("não manda o token à API oficial (evita pré-voo CORS): %s", (url) => {
-    expect(apiTokenHeaders("segredo", url)).toEqual({});
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
-  it("manda o token a um servidor próprio que o exija", () => {
-    expect(apiTokenHeaders("segredo", "https://meu-servidor.exemplo/json_db/config")).toEqual({
-      "Api-Token": "segredo",
-    });
+  it("não manda o token por padrão: a API oficial é pública e o cabeçalho só gera pré-voo", async () => {
+    const apiTokenHeaders = await load();
+    expect(apiTokenHeaders("segredo")).toEqual({});
   });
 
-  it("não manda cabeçalho vazio", () => {
-    expect(apiTokenHeaders("", "https://meu-servidor.exemplo/json_db/config")).toEqual({});
+  it("manda o token quando o servidor configurado o exige", async () => {
+    vi.stubEnv("VITE_API_TOKEN_REQUIRED", "true");
+    const apiTokenHeaders = await load();
+    expect(apiTokenHeaders("segredo")).toEqual({ "Api-Token": "segredo" });
   });
 
-  it("não manda o token quando a URL é inválida", () => {
-    expect(apiTokenHeaders("segredo", "não é url")).toEqual({});
+  it("não manda cabeçalho vazio, mesmo exigido", async () => {
+    vi.stubEnv("VITE_API_TOKEN_REQUIRED", "true");
+    const apiTokenHeaders = await load();
+    expect(apiTokenHeaders("")).toEqual({});
   });
 
-  it("não confunde um domínio parecido com o oficial", () => {
-    expect(apiTokenHeaders("segredo", "https://evil-louvorja.com.br/x")).toEqual({
-      "Api-Token": "segredo",
-    });
+  it("só o valor 'true' liga o envio", async () => {
+    vi.stubEnv("VITE_API_TOKEN_REQUIRED", "1");
+    const apiTokenHeaders = await load();
+    expect(apiTokenHeaders("segredo")).toEqual({});
   });
 });
