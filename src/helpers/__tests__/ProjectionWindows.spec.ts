@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PROJECTION_TYPE, PROJECTION_URL } from "@/constants/Projection";
 import { KEYS } from "@/constants/UserDataKeys";
+import { BROADCAST_TYPE } from "@/helpers/BroadcastTypes";
 
 type OpenArgs = {
   route: string;
@@ -46,7 +47,8 @@ vi.mock("@/helpers/Platform", () => ({
       return { sendKey: platformState.sendKey };
     },
     displays: {
-      getPreferred: async (feature: string) => (feature in monitors ? { id: monitors[feature] } : null),
+      getPreferred: async (feature: string) =>
+        feature in monitors ? { id: monitors[feature] } : null,
     },
   },
 }));
@@ -63,8 +65,13 @@ vi.mock("@/helpers/Telemetry", () => ({
 /* Hoisted para o factory poder usá-lo: o Broadcast é quem leva o sinal de
    "projeção de Site abriu" para o Som de Fundo pausar. */
 const broadcast = vi.hoisted(() => vi.fn());
+/* Último payload por tipo — é de onde o renderer lê o estado dos avisos. */
+const lastPayloads = vi.hoisted(() => ({}) as Record<string, unknown>);
 vi.mock("@/helpers/Broadcast", () => ({
-  default: { send: (...args: unknown[]) => broadcast(...args) },
+  default: {
+    send: (...args: unknown[]) => broadcast(...args),
+    getLastPayload: (type: string) => lastPayloads[type] ?? null,
+  },
 }));
 vi.mock("@/helpers/AppData", () => ({
   default: { get: (key: string, fallback?: unknown) => (key in onAir ? onAir[key] : fallback) },
@@ -72,7 +79,16 @@ vi.mock("@/helpers/AppData", () => ({
 
 import Telemetry from "@/helpers/Telemetry";
 const windows = await import("@/helpers/ProjectionWindows");
-const { MUSIC, RETURN, FILE, FILE_RETURN, ONLINE_VIDEO, ONLINE_VIDEO_RETURN, OPERATOR, BACKGROUND } = PROJECTION_TYPE;
+const {
+  MUSIC,
+  RETURN,
+  FILE,
+  FILE_RETURN,
+  ONLINE_VIDEO,
+  ONLINE_VIDEO_RETURN,
+  OPERATOR,
+  BACKGROUND,
+} = PROJECTION_TYPE;
 
 const opened = () => openWindow.mock.calls.map(([o]) => ({ route: o.route, feature: o.feature }));
 const lastOpen = () => openWindow.mock.calls.at(-1)?.[0] as OpenArgs;
@@ -86,6 +102,7 @@ beforeEach(async () => {
    */
   await windows.closeSiteWindow();
   calls.length = 0;
+  for (const k of Object.keys(lastPayloads)) delete lastPayloads[k];
   platformState.isDesktop = true;
   platformState.sendKey.mockReset();
   platformState.sendKey.mockResolvedValue({ ok: true });
@@ -126,7 +143,8 @@ describe("openMediaWindow — a tabela de janelas por mídia", () => {
 
   it("vídeo e arquivo nunca abrem as rotas de música, que ficariam em PRÓX 1/0 e em branco", async () => {
     for (const media of ["file", "video"] as const) {
-      for (const kind of ["projection", "return"] as const) await windows.openMediaWindow(kind, media);
+      for (const kind of ["projection", "return"] as const)
+        await windows.openMediaWindow(kind, media);
     }
     const routes = opened().map((o) => o.route);
     expect(routes).not.toContain(PROJECTION_URL.MUSIC);
@@ -205,13 +223,21 @@ describe("currentMediaKind — que mídia está no ar", () => {
     ["nada tocando", {}, "music"],
     ["música com slides", { [CONFIG.AUDIO]: "louvorja://files/musics/a.opus" }, "music"],
     ["player embutido do YouTube", { [CONFIG.IS_YOUTUBE]: true }, "video"],
-    ["vídeo on-line baixado", { [CONFIG.VIDEO_FILE]: true, [CONFIG.AUDIO]: "louvorja://onlinevideo/x.mp4" }, "video"],
+    [
+      "vídeo on-line baixado",
+      { [CONFIG.VIDEO_FILE]: true, [CONFIG.AUDIO]: "louvorja://onlinevideo/x.mp4" },
+      "video",
+    ],
     [
       "vídeo on-line tocando enquanto baixa",
       { [CONFIG.VIDEO_FILE]: true, [CONFIG.AUDIO]: "louvorja://onlinestream/x/audio" },
       "video",
     ],
-    ["vídeo de arquivo da liturgia", { [CONFIG.VIDEO_FILE]: true, [CONFIG.AUDIO]: "louvorja://local/videos/culto.mp4" }, "file"],
+    [
+      "vídeo de arquivo da liturgia",
+      { [CONFIG.VIDEO_FILE]: true, [CONFIG.AUDIO]: "louvorja://local/videos/culto.mp4" },
+      "file",
+    ],
   ])("%s → %s", (_nome, state, kind) => {
     onAir = state;
     expect(windows.currentMediaKind()).toBe(kind);
@@ -223,11 +249,14 @@ describe("mediaWindowPlan — a tabela é pública e é a mesma que abre as jane
     ["music", MUSIC, PROJECTION_URL.MUSIC],
     ["file", FILE, PROJECTION_URL.FILE],
     ["video", FILE, PROJECTION_URL.FILE],
-  ] as const)("%s: a janela do plano é a que openMediaWindow abre", async (media, feature, route) => {
-    expect(windows.mediaWindowPlan("projection", media)).toMatchObject({ feature, route });
-    await windows.openMediaWindow("projection", media);
-    expect(opened()).toEqual([{ route, feature }]);
-  });
+  ] as const)(
+    "%s: a janela do plano é a que openMediaWindow abre",
+    async (media, feature, route) => {
+      expect(windows.mediaWindowPlan("projection", media)).toMatchObject({ feature, route });
+      await windows.openMediaWindow("projection", media);
+      expect(opened()).toEqual([{ route, feature }]);
+    }
+  );
 
   it("no vídeo, a janela é a do arquivo mas o monitor tem opção própria, antes da da música", () => {
     expect(windows.mediaWindowPlan("projection", "video").monitors).toEqual([ONLINE_VIDEO, MUSIC]);
@@ -235,24 +264,36 @@ describe("mediaWindowPlan — a tabela é pública e é a mesma que abre as jane
 });
 
 describe("openMediaWindow — o retorno de música sai do caminho do arquivo e do vídeo", () => {
-  it.each(["file", "video"] as const)("%s: o retorno de música sai antes de o retorno da mídia entrar", async (media) => {
-    await windows.openMediaWindow("return", media);
-    expect(calls).toEqual([`close:${RETURN}`, `open:${media === "file" ? FILE_RETURN : ONLINE_VIDEO_RETURN}`]);
-  });
+  it.each(["file", "video"] as const)(
+    "%s: o retorno de música sai antes de o retorno da mídia entrar",
+    async (media) => {
+      await windows.openMediaWindow("return", media);
+      expect(calls).toEqual([
+        `close:${RETURN}`,
+        `open:${media === "file" ? FILE_RETURN : ONLINE_VIDEO_RETURN}`,
+      ]);
+    }
+  );
 
-  it.each(["file", "video"] as const)("%s: sem onde pôr o retorno, o de música em PRÓX 1/0 sai mesmo assim", async (media) => {
-    monitors = {};
-    musicReturnOnScreen();
-    await windows.openMediaWindow("return", media);
-    expect(calls).toEqual([`close:${RETURN}`]);
-  });
+  it.each(["file", "video"] as const)(
+    "%s: sem onde pôr o retorno, o de música em PRÓX 1/0 sai mesmo assim",
+    async (media) => {
+      monitors = {};
+      musicReturnOnScreen();
+      await windows.openMediaWindow("return", media);
+      expect(calls).toEqual([`close:${RETURN}`]);
+    }
+  );
 
-  it.each(["file", "video"] as const)("%s: sem onde pôr o retorno e sem retorno de música, nada acontece", async (media) => {
-    monitors = {};
-    await windows.openMediaWindow("return", media);
-    expect(closeWindow).not.toHaveBeenCalled();
-    expect(openWindow).not.toHaveBeenCalled();
-  });
+  it.each(["file", "video"] as const)(
+    "%s: sem onde pôr o retorno e sem retorno de música, nada acontece",
+    async (media) => {
+      monitors = {};
+      await windows.openMediaWindow("return", media);
+      expect(closeWindow).not.toHaveBeenCalled();
+      expect(openWindow).not.toHaveBeenCalled();
+    }
+  );
 
   it("o retorno de música em si nunca fecha o retorno de música", async () => {
     await windows.openMediaWindow("return", "music");
@@ -260,26 +301,176 @@ describe("openMediaWindow — o retorno de música sai do caminho do arquivo e d
   });
 });
 
-describe("a abertura automática e o menu do player abrem exatamente a mesma janela", () => {
-  it.each(["music", "file", "video"] as const)("%s: automático e sob demanda pedem os mesmos argumentos à plataforma", async (media) => {
-    prefs = {
-      [KEYS.OPTIONS.OPEN_RETURN]: true,
-      [KEYS.OPTIONS.FILE_PROJECTION.SHOW_RETURN]: true,
-      [KEYS.OPTIONS.ONLINE_VIDEO_PROJECTION.SHOW_RETURN]: true,
-      [KEYS.OPTIONS.OPEN_OPERATOR]: true,
-    };
-    const automatic = { music: windows.openProjectionWindows, file: windows.openFileProjectionWindows, video: windows.openVideoProjectionWindows }[media];
-    await automatic();
-    const auto = openWindow.mock.calls.map(([o]) => o);
+describe("avisos (Utilitários) dentro da projeção de fundo", () => {
+  it("com o fundo aberto, o aviso não abre janela própria", async () => {
+    isWindowOpen.mockImplementation(
+      async (feature: string) => feature === PROJECTION_TYPE.BACKGROUND
+    );
 
-    openWindow.mockClear();
-    for (const kind of ["projection", "return", "operator"] as const) {
-      await windows.openMediaWindow(kind, media, { explicit: true });
-    }
-    const manual = openWindow.mock.calls.map(([o]) => o);
-
-    expect(manual).toEqual(auto);
+    /*
+     * `true` mesmo sem janela: a projeção ESTÁ no ar, renderizada dentro da
+     * janela de fundo. Devolver false faria a liturgia achar que não projetou.
+     */
+    expect(await windows.openAnnouncementsWindow()).toBe(true);
+    expect(openWindow).not.toHaveBeenCalled();
   });
+
+  it("sem o fundo aberto, mantém a janela própria de tela cheia", async () => {
+    isWindowOpen.mockImplementation(
+      async (feature: string) => feature === PROJECTION_TYPE.ANNOUNCEMENTS
+    );
+
+    expect(await windows.openAnnouncementsWindow()).toBe(true);
+    expect(lastOpen().feature).toBe(PROJECTION_TYPE.ANNOUNCEMENTS);
+  });
+
+  it("fechar o fundo com aviso no ar devolve o aviso para a janela própria", async () => {
+    /*
+     * Os avisos renderizam dentro da janela de fundo. Fechá-la no meio do aviso
+     * levaria a projeção junto, com o módulo achando que ainda está projetando.
+     */
+    lastPayloads[BROADCAST_TYPE.ANNOUNCEMENTS_STATE] = { active: true, announcement_session: "s1" };
+    /* O fundo começa aberto e some quando é fechado — o portão de
+       `openAnnouncementsWindow` pergunta justamente isso. */
+    let fundoAberto = true;
+    isWindowOpen.mockImplementation(
+      async (feature: string) => feature === PROJECTION_TYPE.BACKGROUND && fundoAberto
+    );
+    closeWindow.mockImplementation(async (feature: string) => {
+      calls.push(`close:${feature}`);
+      if (feature === PROJECTION_TYPE.BACKGROUND) fundoAberto = false;
+    });
+
+    await windows.closeBackgroundProjectionWindows();
+
+    /* O fundo fecha ANTES: com ele ainda aberto o portão devolveria sem abrir nada. */
+    expect(calls.indexOf(`close:${PROJECTION_TYPE.BACKGROUND}`)).toBeGreaterThan(-1);
+    expect(calls.indexOf(`open:${PROJECTION_TYPE.ANNOUNCEMENTS}`)).toBeGreaterThan(
+      calls.indexOf(`close:${PROJECTION_TYPE.BACKGROUND}`)
+    );
+  });
+
+  /*
+   * Utilitários (timer, contador, relógio…) seguem a MESMA regra dos avisos: com
+   * o fundo aberto eles são uma camada dele, e quem estava no ar quando a
+   * janela fecha precisa de volta a janela própria. Sem isto o utilitário
+   * simplesmente sumia do telão — enquanto slides e vídeo voltam sozinhos.
+   */
+  it("fechar o fundo com utilitário na camada devolve a janela dele", async () => {
+    let fundoAberto = true;
+    isWindowOpen.mockImplementation(
+      async (feature: string) => feature === PROJECTION_TYPE.BACKGROUND && fundoAberto
+    );
+    closeWindow.mockImplementation(async (feature: string) => {
+      calls.push(`close:${feature}`);
+      if (feature === PROJECTION_TYPE.BACKGROUND) fundoAberto = false;
+    });
+    monitors["timer"] = 1;
+    windows.setUtilitarioNaCamada("timer");
+
+    await windows.closeBackgroundProjectionWindows();
+
+    expect(calls).toContain("open:timer");
+    /* O fundo fecha ANTES: com ele ainda aberto não há monitor para a janela. */
+    expect(calls.indexOf(`close:${PROJECTION_TYPE.BACKGROUND}`)).toBeLessThan(
+      calls.indexOf("open:timer")
+    );
+    /* E o registro é limpo: o utilitário agora é janela, não camada. */
+    expect(windows.utilitarioNaCamada()).toBeNull();
+  });
+
+  it("fechar o fundo sem utilitário na camada não abre janela de utilitário", async () => {
+    isWindowOpen.mockImplementation(async () => false);
+    openWindow.mockClear();
+
+    await windows.closeBackgroundProjectionWindows();
+
+    expect(openWindow).not.toHaveBeenCalled();
+  });
+
+  it("fechar o fundo sem aviso no ar não abre janela nenhuma", async () => {
+    lastPayloads[BROADCAST_TYPE.ANNOUNCEMENTS_STATE] = { active: false };
+    openWindow.mockClear();
+
+    await windows.closeBackgroundProjectionWindows();
+
+    expect(openWindow).not.toHaveBeenCalled();
+  });
+
+  it("abrir o fundo com aviso na janela própria entrega o aviso à camada", async () => {
+    /*
+     * Com o fundo aberto, os avisos renderizam DENTRO dele. Deixar a janela
+     * própria no ar ao mesmo tempo desenha o aviso duas vezes — e duas cópias
+     * do mesmo vídeo rodando.
+     */
+    lastPayloads[BROADCAST_TYPE.ANNOUNCEMENTS_STATE] = { active: true };
+    isWindowOpen.mockImplementation(
+      async (feature: string) =>
+        feature === PROJECTION_TYPE.BACKGROUND ||
+        (feature === PROJECTION_TYPE.ANNOUNCEMENTS && fundoDaVezAnterior)
+    );
+    monitors[PROJECTION_TYPE.BACKGROUND] = 1;
+    let fundoDaVezAnterior = true;
+
+    await windows.openBackgroundProjectionWindows();
+
+    expect(calls.indexOf(`open:${PROJECTION_TYPE.BACKGROUND}`)).toBeGreaterThan(-1);
+    expect(calls).toContain(`close:${PROJECTION_TYPE.ANNOUNCEMENTS}`);
+    /* O fundo nasce ANTES: é ele que vai carregar o aviso. */
+    expect(calls.indexOf(`open:${PROJECTION_TYPE.BACKGROUND}`)).toBeLessThan(
+      calls.indexOf(`close:${PROJECTION_TYPE.ANNOUNCEMENTS}`)
+    );
+  });
+
+  it("abrir o fundo sem aviso no ar não mexe em janela nenhuma", async () => {
+    isWindowOpen.mockImplementation(
+      async (feature: string) => feature === PROJECTION_TYPE.BACKGROUND
+    );
+    monitors[PROJECTION_TYPE.BACKGROUND] = 1;
+    openWindow.mockClear();
+    closeWindow.mockClear();
+
+    await windows.openBackgroundProjectionWindows();
+
+    expect(calls.filter((c) => c.startsWith("close:"))).toEqual([]);
+  });
+
+  it("o telão do operador recusa: aí também não há projeção", async () => {
+    /* Sem monitor de arquivo nem de música, a janela não abre em lugar nenhum. */
+    delete monitors[PROJECTION_TYPE.FILE];
+    delete monitors[PROJECTION_TYPE.MUSIC];
+
+    expect(await windows.openAnnouncementsWindow()).toBe(false);
+  });
+});
+
+describe("a abertura automática e o menu do player abrem exatamente a mesma janela", () => {
+  it.each(["music", "file", "video"] as const)(
+    "%s: automático e sob demanda pedem os mesmos argumentos à plataforma",
+    async (media) => {
+      prefs = {
+        [KEYS.OPTIONS.OPEN_RETURN]: true,
+        [KEYS.OPTIONS.FILE_PROJECTION.SHOW_RETURN]: true,
+        [KEYS.OPTIONS.ONLINE_VIDEO_PROJECTION.SHOW_RETURN]: true,
+        [KEYS.OPTIONS.OPEN_OPERATOR]: true,
+      };
+      const automatic = {
+        music: windows.openProjectionWindows,
+        file: windows.openFileProjectionWindows,
+        video: windows.openVideoProjectionWindows,
+      }[media];
+      await automatic();
+      const auto = openWindow.mock.calls.map(([o]) => o);
+
+      openWindow.mockClear();
+      for (const kind of ["projection", "return", "operator"] as const) {
+        await windows.openMediaWindow(kind, media, { explicit: true });
+      }
+      const manual = openWindow.mock.calls.map(([o]) => o);
+
+      expect(manual).toEqual(auto);
+    }
+  );
 });
 
 describe("as aberturas automáticas", () => {
@@ -384,7 +575,10 @@ describe("as aberturas automáticas", () => {
 it("libera apenas janelas de arquivo e vídeo antes de os slides assumirem o palco", async () => {
   await windows.closeFileProjectionWindows();
   expect(closeWindow.mock.calls.map(([feature]) => feature)).toEqual([
-    FILE, FILE_RETURN, ONLINE_VIDEO, ONLINE_VIDEO_RETURN,
+    FILE,
+    FILE_RETURN,
+    ONLINE_VIDEO,
+    ONLINE_VIDEO_RETURN,
   ]);
   expect(closeWindow).not.toHaveBeenCalledWith(MUSIC);
   expect(closeWindow).not.toHaveBeenCalledWith(OPERATOR);
@@ -400,28 +594,38 @@ it("ao entrar vídeo, fecha somente as janelas de música e retorno", async () =
 it.each([
   ["música", () => windows.closeMusicProjectionWindows(), "music", MUSIC],
   ["arquivo", () => windows.closeFileProjectionWindows(), "file", FILE],
-] as const)("%s só reabre a feature depois que o close nativo foi confirmado", async (_name, closeStage, media, feature) => {
-  const closing = (() => {
-    let resolve!: () => void;
-    const promise = new Promise<void>((done) => { resolve = done; });
-    return { promise, resolve };
-  })();
-  closeWindow.mockImplementationOnce(() => closing.promise);
+] as const)(
+  "%s só reabre a feature depois que o close nativo foi confirmado",
+  async (_name, closeStage, media, feature) => {
+    const closing = (() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    })();
+    closeWindow.mockImplementationOnce(() => closing.promise);
 
-  const close = closeStage();
-  await vi.waitFor(() => expect(closeWindow).toHaveBeenCalled());
-  const open = windows.openMediaWindow("projection", media);
-  await Promise.resolve();
-  expect(openWindow).not.toHaveBeenCalled();
+    const close = closeStage();
+    await vi.waitFor(() => expect(closeWindow).toHaveBeenCalled());
+    const open = windows.openMediaWindow("projection", media);
+    await Promise.resolve();
+    expect(openWindow).not.toHaveBeenCalled();
 
-  closing.resolve();
-  await Promise.all([close, open]);
-  expect(openWindow).toHaveBeenCalledWith(expect.objectContaining({ feature }));
-});
+    closing.resolve();
+    await Promise.all([close, open]);
+    expect(openWindow).toHaveBeenCalledWith(expect.objectContaining({ feature }));
+  }
+);
 
 it("vídeo espera uma janela MUSIC já abrindo antes de fechá-la", async () => {
   let finishOpen!: () => void;
-  openWindow.mockImplementationOnce(() => new Promise<void>((resolve) => { finishOpen = resolve; }));
+  openWindow.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finishOpen = resolve;
+      })
+  );
   const music = windows.openProjectionWindows();
   await vi.waitFor(() => expect(openWindow).toHaveBeenCalledOnce());
   const closeMusic = windows.closeMusicProjectionWindows();
@@ -433,7 +637,12 @@ it("vídeo espera uma janela MUSIC já abrindo antes de fechá-la", async () => 
 
 it("MUSIC que termina de abrir após o limite é fechada sem bloquear o novo vídeo", async () => {
   let finishOpen!: () => void;
-  openWindow.mockImplementationOnce(() => new Promise<void>((resolve) => { finishOpen = resolve; }));
+  openWindow.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finishOpen = resolve;
+      })
+  );
   const music = windows.openProjectionWindows();
   await vi.waitFor(() => expect(openWindow).toHaveBeenCalledOnce());
   vi.useFakeTimers();
@@ -714,14 +923,13 @@ describe("tela de loading da projeção de Site", () => {
     prefs[KEYS.OPTIONS.SITE_PROJECTION.SHOW_RETURN] = true;
     monitors[PROJECTION_TYPE.SITE] = 1;
     monitors[PROJECTION_TYPE.SITE_RETURN] = 2;
-    isWindowOpen.mockImplementation(
-      async (feature: string) =>
-        [
-          PROJECTION_TYPE.SITE,
-          PROJECTION_TYPE.SITE_RETURN,
-          PROJECTION_TYPE.SITE_LOADER,
-          PROJECTION_TYPE.SITE_LOADER_RETURN,
-        ].includes(feature)
+    isWindowOpen.mockImplementation(async (feature: string) =>
+      [
+        PROJECTION_TYPE.SITE,
+        PROJECTION_TYPE.SITE_RETURN,
+        PROJECTION_TYPE.SITE_LOADER,
+        PROJECTION_TYPE.SITE_LOADER_RETURN,
+      ].includes(feature)
     );
 
     await windows.openSiteWindow(URL_DO_SITE, "liturgy");
@@ -736,7 +944,9 @@ describe("tela de loading da projeção de Site", () => {
   });
 
   it("site não abriu → loader fecha na hora e o main nunca é avisado", async () => {
-    isWindowOpen.mockImplementation(async (feature: string) => feature === PROJECTION_TYPE.SITE_LOADER);
+    isWindowOpen.mockImplementation(
+      async (feature: string) => feature === PROJECTION_TYPE.SITE_LOADER
+    );
 
     expect(await windows.openSiteWindow(URL_DO_SITE, "liturgy")).toBe(false);
 
@@ -905,9 +1115,7 @@ describe("saída da projeção de Site — o loader vira camada de transição",
 describe("telemetria da projeção de Site", () => {
   const URL_DO_SITE = "https://exemplo.com/culto";
   const eventos = () =>
-    vi
-      .mocked(Telemetry.track)
-      .mock.calls.filter(([evento]) => evento === "site_projected");
+    vi.mocked(Telemetry.track).mock.calls.filter(([evento]) => evento === "site_projected");
   const props = () => eventos()[0][1] as Record<string, unknown>;
 
   beforeEach(() => {
@@ -944,14 +1152,13 @@ describe("telemetria da projeção de Site", () => {
     prefs[KEYS.OPTIONS.SITE_PROJECTION.SHOW_RETURN] = true;
     monitors[PROJECTION_TYPE.SITE] = 1;
     monitors[PROJECTION_TYPE.SITE_RETURN] = 2;
-    isWindowOpen.mockImplementation(
-      async (feature: string) =>
-        [
-          PROJECTION_TYPE.SITE,
-          PROJECTION_TYPE.SITE_RETURN,
-          PROJECTION_TYPE.SITE_LOADER,
-          PROJECTION_TYPE.SITE_LOADER_RETURN,
-        ].includes(feature)
+    isWindowOpen.mockImplementation(async (feature: string) =>
+      [
+        PROJECTION_TYPE.SITE,
+        PROJECTION_TYPE.SITE_RETURN,
+        PROJECTION_TYPE.SITE_LOADER,
+        PROJECTION_TYPE.SITE_LOADER_RETURN,
+      ].includes(feature)
     );
 
     await windows.openSiteWindow(URL_DO_SITE, "liturgy");
@@ -976,10 +1183,7 @@ describe("telemetria da projeção de Site", () => {
   it("nunca manda URL, design nem título — só origem, resultado e duração", async () => {
     isWindowOpen.mockResolvedValue(false);
 
-    await windows.openSiteWindow(
-      "https://www.canva.com/api/design/JWT-SEGREDO/view",
-      "canva"
-    );
+    await windows.openSiteWindow("https://www.canva.com/api/design/JWT-SEGREDO/view", "canva");
 
     expect(Object.keys(props()).sort()).toEqual([
       "duration_ms",
@@ -994,8 +1198,7 @@ describe("telemetria da projeção de Site", () => {
 });
 
 describe("sinal de projeção de Site para o Som de Fundo", () => {
-  const sites = () =>
-    broadcast.mock.calls.filter(([tipo]) => tipo === "site_projection");
+  const sites = () => broadcast.mock.calls.filter(([tipo]) => tipo === "site_projection");
 
   beforeEach(() => broadcast.mockClear());
 

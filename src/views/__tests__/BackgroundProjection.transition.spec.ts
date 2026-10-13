@@ -38,6 +38,11 @@ vi.mock("@/views/LibrasOverlay.vue", () => ({
   default: { name: "LibrasOverlay", template: "<div class='libras-overlay' />" },
 }));
 
+import {
+  AnnouncementsPresentationAuthority,
+  beginAnnouncementIntent,
+} from "@/presentation/AnnouncementsPresentationState";
+import { ModulePresentationAuthority } from "@/presentation/ModulePresentationState";
 import BackgroundProjection from "@/views/BackgroundProjection.vue";
 import BackgroundProjectionReturn from "@/views/BackgroundProjectionReturn.vue";
 /* O `?raw` devolve o SFC inteiro — é o que permite conferir a fiação das
@@ -243,6 +248,207 @@ describe("Projeção de Fundo — as camadas entram e saem com fade", () => {
     expect(w.find(".fade-leave-active").exists()).toBe(true);
   });
 
+  /*
+   * Utilitários (timer, contador, relógio, cronômetro, quadro, painel): entravam
+   * por `/projection/module`, uma JANELA FULLSCREEN própria — aparecia por
+   * cima do telão como um retângulo preto, sem fade nenhum.
+   */
+  describe("utilitários dentro da janela de fundo", () => {
+    let authority: ModulePresentationAuthority;
+
+    /*
+     * `MODULE_PROJECTION_VALUE` passa por um gate: sem o pacote completo
+     * (session/epoch/revision) a mensagem é descartada e não chega a ninguém.
+     * O teste publica pela MESMA autoridade que a janela principal usa.
+     */
+    function valorDoModulo(id: string, texto = "10:00"): void {
+      const packet = authority.publish({ module: id, active: true, text: texto });
+      if (packet) Broadcast.send(BROADCAST_TYPE.MODULE_PROJECTION_VALUE, packet);
+    }
+
+    /** O clique em "Projetar" — é o que liga a camada. */
+    function projetoModulo(id: string): void {
+      Broadcast.send(BROADCAST_TYPE.MODULE_PROJECTION_OPEN, { module: id });
+      valorDoModulo(id);
+    }
+
+    function fechaModulo(id: string): void {
+      Broadcast.send(BROADCAST_TYPE.MODULE_PROJECTION_CLOSE, { module: id });
+    }
+
+    beforeEach(() => {
+      authority = new ModulePresentationAuthority();
+    });
+
+    it("o utilitário entra como camada com fade", async () => {
+      const w = montar();
+
+      projetoModulo("timer");
+      await nextTick();
+
+      expect(w.find(".layer-utilitario").exists()).toBe(true);
+      expect(w.find(".fade-enter-active").exists()).toBe(true);
+      /* A camada é o MESMO componente que a janela de módulo usa. */
+      expect(w.find(".module-projection").exists()).toBe(true);
+      expect(w.find(".module-projection__text--timer").exists()).toBe(true);
+      expect(estiloDe(".layer-utilitario")).toContain("--fade-ms: 500ms");
+    });
+
+    it("o utilitário sai com fade", async () => {
+      const w = montar();
+      projetoModulo("timer");
+      await nextTick();
+
+      Broadcast.send(BROADCAST_TYPE.MODULE_PROJECTION_CLOSE, { module: "timer" });
+      await nextTick();
+
+      expect(w.find(".fade-leave-active").exists()).toBe(true);
+      expect(w.find(".layer-utilitario").exists()).toBe(true);
+    });
+
+    it("fechar desliga o utilitário, e ele sai com fade", async () => {
+      const w = montar();
+      projetoModulo("timer");
+      await nextTick();
+
+      fechaModulo("timer");
+      await nextTick();
+
+      /*
+       * O evento de fechar NÃO traz `active`; lido como "no ar" ele manteria o
+       * utilitário preso na tela depois do ESC. Fechar é desligar.
+       */
+      expect(w.find(".fade-leave-active").exists()).toBe(true);
+
+      await new Promise((r) => setTimeout(r, 700));
+      await nextTick();
+      expect(w.find(".layer-utilitario").exists()).toBe(false);
+    });
+
+    it("dois utilitários no ar: quem fala por último fica na tela", async () => {
+      const w = montar();
+      projetoModulo("clock");
+      await nextTick();
+      projetoModulo("counter");
+      await nextTick();
+
+      /* Durante o cruzamento as duas camadas coexistem: o que sai continua na
+         tela até o fade terminar, que é o que evita o piscar. */
+      expect(w.find(".module-projection__text--counter").exists()).toBe(true);
+      expect(w.findAll(".layer-utilitario")).toHaveLength(2);
+
+      /* Desligar o da frente devolve o de baixo, em vez de apagar o telão. */
+      fechaModulo("counter");
+      await nextTick();
+      expect(w.find(".module-projection__text--clock").exists()).toBe(true);
+    });
+
+    it("valor emitido sozinho NÃO projeta — só o clique em Projetar liga", async () => {
+      /*
+       * Este é o defeito: contador, relógio e timer emitem `active:true` desde
+       * que o módulo abre (o watch é immediate). Sem janela para onde ir, o
+       * telão passava a pintar o módulo sozinho, sem ninguém pedir.
+       */
+      const w = montar();
+
+      valorDoModulo("timer");
+      await nextTick();
+      expect(w.find(".layer-utilitario").exists()).toBe(false);
+
+      Broadcast.send(BROADCAST_TYPE.MODULE_PROJECTION_OPEN, { module: "timer" });
+      await nextTick();
+      expect(w.find(".layer-utilitario").exists()).toBe(true);
+    });
+
+    it("trocar de utilitário faz um cruzar, sem piscar", async () => {
+      const w = montar();
+      projetoModulo("clock");
+      await nextTick();
+
+      projetoModulo("stopwatch");
+      await nextTick();
+
+      expect(w.find(".fade-enter-active").exists()).toBe(true);
+      expect(w.find(".fade-leave-active").exists()).toBe(true);
+    });
+  });
+
+  /*
+   * Avisos: com a Projeção de Fundo aberta, o aviso renderiza aqui dentro em vez
+   * de numa janela opaca por cima do telão.
+   */
+  describe("avisos dentro da janela de fundo", () => {
+    let authority: AnnouncementsPresentationAuthority;
+
+    /** O módulo publica a intenção; a autoridade responde no STATE. */
+    function iniciarAviso(texto = "Aviso no ar"): void {
+      authority.publish({
+        ...beginAnnouncementIntent(),
+        slides: [{ id: "a", nome: "Aviso", ordem: 1, texto }],
+        index: 0,
+      });
+      const packet = authority.current()!;
+      Broadcast.send(BROADCAST_TYPE.ANNOUNCEMENTS_STATE, packet);
+    }
+
+    function pararAviso(): void {
+      const packet = authority.control({
+        action: "stop",
+        announcement_session: authority.current()!.announcement_session,
+      });
+      if (packet) Broadcast.send(BROADCAST_TYPE.ANNOUNCEMENTS_STATE, packet);
+    }
+
+    beforeEach(() => {
+      authority = new AnnouncementsPresentationAuthority();
+    });
+
+    it("o aviso entra como mais uma camada com fade", async () => {
+      const w = montar();
+
+      iniciarAviso();
+      await nextTick();
+
+      expect(w.find(".layer-avisos").exists()).toBe(true);
+      expect(w.find(".fade-enter-active").exists()).toBe(true);
+      /* O aviso é o MESMO componente da janela própria, não uma recriação. */
+      expect(w.find(".ann-text").text()).toContain("Aviso no ar");
+      expect(estiloDe(".layer-avisos")).toContain("--fade-ms: 500ms");
+    });
+
+    it("o aviso sai com fade, e some com o conteúdo — não com um retângulo preto", async () => {
+      const w = montar();
+      iniciarAviso();
+      await nextTick();
+
+      pararAviso();
+      await nextTick();
+
+      expect(w.find(".fade-leave-active").exists()).toBe(true);
+      /*
+       * O `active: false` não pode apagar o slide antes do fade: ele ficaria
+       * no lugar um retângulo preto sumindo, que é o pior dos dois.
+       */
+      expect(w.find(".layer-avisos").exists()).toBe(true);
+      expect(w.find(".ann-text").text()).toContain("Aviso no ar");
+    });
+
+    it("o aviso fica por cima do conteúdo que estava no telão", async () => {
+      const w = montar();
+      projetarMusica();
+      await nextTick();
+      iniciarAviso();
+      await nextTick();
+
+      /* Na janela própria o aviso cobria o telão inteiro; aqui a ordem do DOM
+         é a que garante isso. */
+      const html = w.html();
+      expect(html.indexOf("layer-avisos")).toBeGreaterThan(html.indexOf("layer-projection"));
+      /* E com folga de z-index sobre as outras camadas (o slide é 1). */
+      expect(FONTE).toMatch(/\.layer-avisos \{[\s\S]*?z-index: 3;/);
+    });
+  });
+
   it("a camada de retorno da tela de retorno também entra com fade", async () => {
     const w = montar(BackgroundProjectionReturn);
 
@@ -253,25 +459,27 @@ describe("Projeção de Fundo — as camadas entram e saem com fade", () => {
     expect(w.find(".fade-enter-active").exists()).toBe(true);
   });
 
-/*
- * A SAÍDA depende de duas coisas que os testes acima travam: a camada estar
- * dentro de uma `Transition` com a DURAÇÃO do módulo (senão o Vue a remove no
- * mesmo quadro em que ela some) e a tela ter UMA raiz — um `Transition` que é
- * filho direto de um template com vários irmãos não recebe os ganchos de
- * saída, e a camada desapareceria na frente da congregação sem animar.
- */
+  /*
+   * A SAÍDA depende de duas coisas que os testes acima travam: a camada estar
+   * dentro de uma `Transition` com a DURAÇÃO do módulo (senão o Vue a remove no
+   * mesmo quadro em que ela some) e a tela ter UMA raiz — um `Transition` que é
+   * filho direto de um template com vários irmãos não recebe os ganchos de
+   * saída, e a camada desapareceria na frente da congregação sem animar.
+   */
   describe("a saída tem o mesmo relógio da entrada", () => {
     it("cada camada que entra com fade sai com fade", () => {
       for (const fonte of [FONTE, FONTE_RETORNO]) {
-        const camadas = fonte.match(
-          /<Transition name="fade" :duration="fadeDurationMs">/g
-        );
+        const camadas = fonte.match(/<Transition name="fade" :duration="fadeDurationMs">/g);
         /*
-         * Três por tela: arquivo, conjunto do fundo e camada de slides. As
-         * outras `Transition` do arquivo são as do PRÓPRIO fundo, que já
-         * existiam e não dependem deste ajuste.
+         * Quatro na projeção (arquivo, conjunto do fundo, camada de slides,
+         * avisos) mais uma na camada de utilitários — cinco camadas que entram
+         * e saem pelo mesmo relógio. As outras `Transition` do arquivo são as do
+         * PRÓPRIO fundo, que já existiam e não dependem deste ajuste.
+         *
+         * O espelho não tem avisos nem utilitários: nenhuma das duas projeções
+         * tem tela de retorno.
          */
-        expect(camadas?.length).toBe(3);
+        expect(camadas?.length).toBe(fonte === FONTE ? 5 : 3);
       }
     });
 

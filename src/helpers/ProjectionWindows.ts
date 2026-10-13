@@ -19,7 +19,11 @@ import $appdata from "@/helpers/AppData";
 import { isProgressiveUrl } from "@/helpers/OnlineVideo";
 import { PROJECTION_TYPE, PROJECTION_URL } from "@/constants/Projection";
 import { KEYS } from "@/constants/UserDataKeys";
-import { close as closeWindow, isOpen as isWindowOpen, open as openWindow } from "@/helpers/Projection";
+import {
+  close as closeWindow,
+  isOpen as isWindowOpen,
+  open as openWindow,
+} from "@/helpers/Projection";
 import { roleOfFeature } from "@/helpers/DisplayRoles";
 import Telemetry from "@/helpers/Telemetry";
 import WebRoles from "@/helpers/projection/WebRoles";
@@ -78,10 +82,7 @@ async function _closeSite(opts: { fade?: boolean } = {}): Promise<void> {
       try {
         // Juntas de propósito: a de retorno só existe se a de projeção existir,
         // e deixar uma órfã manteria a URL na tela depois de "Encerrar projeção".
-        await Promise.all([
-          _close(PROJECTION_TYPE.SITE),
-          _close(PROJECTION_TYPE.SITE_RETURN),
-        ]);
+        await Promise.all([_close(PROJECTION_TYPE.SITE), _close(PROJECTION_TYPE.SITE_RETURN)]);
       } catch {
         /*
          * Site preso ATRÁS do loader é pior do que sumir na hora: a cobertura
@@ -133,10 +134,7 @@ async function _cobrirSiteParaSair(): Promise<boolean> {
    * num monitor diferente do site, ele cobre o operador em vez do telão.
    */
   const fullscreen = $userdata.get(KEYS.OPTIONS.FILE_PROJECTION.FULLSCREEN, true) as boolean;
-  const alwaysOnTop = $userdata.get(
-    KEYS.OPTIONS.FILE_PROJECTION.ALWAYS_ON_TOP,
-    true
-  ) as boolean;
+  const alwaysOnTop = $userdata.get(KEYS.OPTIONS.FILE_PROJECTION.ALWAYS_ON_TOP, true) as boolean;
 
   let cobriu = false;
   if (principalAberto) {
@@ -186,7 +184,7 @@ async function _close(feature: string): Promise<void> {
  * Quando está aberta, as demais projeções (música, arquivo, bíblia)
  * renderizam dentro dela, sem abrir janelas separadas.
  */
-async function isBackgroundOpen(): Promise<boolean> {
+export async function isBackgroundOpen(): Promise<boolean> {
   return await isWindowOpen(PROJECTION_TYPE.BACKGROUND);
 }
 
@@ -279,7 +277,10 @@ export function mediaWindowPlan(kind: WindowKind, media: MediaKind): WindowPlan 
       : media === "file"
         ? KEYS.OPTIONS.FILE_PROJECTION
         : KEYS.OPTIONS.ONLINE_VIDEO_PROJECTION;
-  const table: Record<MediaKind, Record<"projection" | "return", Omit<WindowPlan, "fullscreen" | "alwaysOnTop">>> = {
+  const table: Record<
+    MediaKind,
+    Record<"projection" | "return", Omit<WindowPlan, "fullscreen" | "alwaysOnTop">>
+  > = {
     music: {
       projection: { route: PROJECTION_URL.MUSIC, feature: MUSIC, monitors: [MUSIC] },
       return: { route: PROJECTION_URL.RETURN, feature: RETURN, monitors: [RETURN] },
@@ -288,7 +289,11 @@ export function mediaWindowPlan(kind: WindowKind, media: MediaKind): WindowPlan 
     // tem a sua opção de monitor, e o retorno sob demanda tem que repetir a da abertura automática.
     file: {
       projection: { route: PROJECTION_URL.FILE, feature: FILE, monitors: [FILE, MUSIC] },
-      return: { route: PROJECTION_URL.FILE_RETURN, feature: FILE_RETURN, monitors: [FILE_RETURN, RETURN] },
+      return: {
+        route: PROJECTION_URL.FILE_RETURN,
+        feature: FILE_RETURN,
+        monitors: [FILE_RETURN, RETURN],
+      },
     },
     video: {
       projection: { route: PROJECTION_URL.FILE, feature: FILE, monitors: [ONLINE_VIDEO, MUSIC] },
@@ -324,10 +329,7 @@ export function mediaWindowPlan(kind: WindowKind, media: MediaKind): WindowPlan 
 export async function openMediaWindow(
   kind: WindowKind,
   media: MediaKind,
-  {
-    explicit = false,
-    monitorId,
-  }: { explicit?: boolean; monitorId?: number | string | null } = {}
+  { explicit = false, monitorId }: { explicit?: boolean; monitorId?: number | string | null } = {}
 ): Promise<void> {
   const plan = mediaWindowPlan(kind, media);
 
@@ -339,7 +341,8 @@ export async function openMediaWindow(
   const placeable = target.open || explicit || kind === "operator";
 
   if (kind === "return" && media !== "music") {
-    if (placeable || (await isWindowOpen(PROJECTION_TYPE.RETURN))) await _close(PROJECTION_TYPE.RETURN);
+    if (placeable || (await isWindowOpen(PROJECTION_TYPE.RETURN)))
+      await _close(PROJECTION_TYPE.RETURN);
   }
   if (!placeable) return;
   /*
@@ -350,12 +353,19 @@ export async function openMediaWindow(
    * este portão atende três delas por projeção.
    */
   if (_siteActive) await _closeSite();
-  await _open(plan.route, plan.feature, monitorId ?? target.monitorId, plan.fullscreen, plan.alwaysOnTop);
+  await _open(
+    plan.route,
+    plan.feature,
+    monitorId ?? target.monitorId,
+    plan.fullscreen,
+    plan.alwaysOnTop
+  );
 }
 
 /** O operador abre com qualquer mídia: ele troca a grade de slides pela prévia do vídeo. */
 async function _openOperatorIfEnabled(media: MediaKind): Promise<void> {
-  if ($userdata.get(KEYS.OPTIONS.OPEN_OPERATOR, false) as boolean) await openMediaWindow("operator", media);
+  if ($userdata.get(KEYS.OPTIONS.OPEN_OPERATOR, false) as boolean)
+    await openMediaWindow("operator", media);
 }
 
 /*
@@ -388,9 +398,12 @@ async function _openProjectionWindows(): Promise<void> {
   if (await isBackgroundOpen()) return;
 
   await openMediaWindow("projection", "music");
-  if ($userdata.get(KEYS.OPTIONS.OPEN_RETURN, false) as boolean) await openMediaWindow("return", "music");
-  /* Mesma regra do arquivo e do vídeo: retorno de outra projeção vira órfão aqui. */
-  else if (await isWindowOpen(PROJECTION_TYPE.RETURN)) await _close(PROJECTION_TYPE.RETURN);
+  if ($userdata.get(KEYS.OPTIONS.OPEN_RETURN, false) as boolean)
+    await openMediaWindow("return", "music");
+  /* Mesma regra do arquivo e do vídeo: retorno de outra projeção vira órfão aqui. */ else if (
+    await isWindowOpen(PROJECTION_TYPE.RETURN)
+  )
+    await _close(PROJECTION_TYPE.RETURN);
   await _openOperatorIfEnabled("music");
 }
 
@@ -425,13 +438,19 @@ export async function openFileProjectionWindows(): Promise<void> {
 
 /**
  * Abre a janela de projeção de Anúncios (reutiliza preferências de arquivo).
+ *
+ * Com a Projeção de Fundo ligada NÃO abre janela: o aviso renderiza dentro dela,
+ * como mais uma camada (`BackgroundProjection.vue`), e ganha de brinde o mesmo
+ * fade das músicas, da bíblia e do arquivo. Uma janela opaca aparecendo por
+ * cima do telão era o que o bypass entregava.
+ *
+ * `true` mesmo assim — a projeção ESTÁ no ar, só não em janela própria, e quem
+ * chama (a liturgia) trata o retorno como "não projetou".
  */
 export async function openAnnouncementsWindow(): Promise<boolean> {
+  if (await isBackgroundOpen()) return true;
   const fullscreen = $userdata.get(KEYS.OPTIONS.FILE_PROJECTION.FULLSCREEN, true) as boolean;
-  const alwaysOnTop = $userdata.get(
-    KEYS.OPTIONS.FILE_PROJECTION.ALWAYS_ON_TOP,
-    true
-  ) as boolean;
+  const alwaysOnTop = $userdata.get(KEYS.OPTIONS.FILE_PROJECTION.ALWAYS_ON_TOP, true) as boolean;
   let target = await _target(PROJECTION_TYPE.FILE);
   if (!target.open) target = await _target(PROJECTION_TYPE.MUSIC);
   if (!target.open) return false;
@@ -524,10 +543,7 @@ export type SiteProjectionSource = "liturgy" | "canva";
  * as preferências de projeção de arquivo (mesma tela, mesma moldura), porque é
  * a projeção mais próxima que existe de "mostrar um documento no telão".
  */
-export async function openSiteWindow(
-  url: string,
-  source: SiteProjectionSource
-): Promise<boolean> {
+export async function openSiteWindow(url: string, source: SiteProjectionSource): Promise<boolean> {
   if (!url) return false;
   const iniciadoEm = Date.now();
   let loader = false;
@@ -535,10 +551,7 @@ export async function openSiteWindow(
 
   try {
     const fullscreen = $userdata.get(KEYS.OPTIONS.FILE_PROJECTION.FULLSCREEN, true) as boolean;
-    const alwaysOnTop = $userdata.get(
-      KEYS.OPTIONS.FILE_PROJECTION.ALWAYS_ON_TOP,
-      true
-    ) as boolean;
+    const alwaysOnTop = $userdata.get(KEYS.OPTIONS.FILE_PROJECTION.ALWAYS_ON_TOP, true) as boolean;
     /*
      * Monitor preferido do site, se houver; senão o da projeção de arquivo, que
      * é o papel que o operador já associou ao telão. Sem nenhum dos três, null
@@ -645,9 +658,7 @@ async function _abrirLoaderSite(
  */
 async function _aguardarLoadersSite(): Promise<void> {
   try {
-    const r = (await window.louvorjaApi?.siteLoader?.aguardar?.()) as
-      | { ok?: boolean }
-      | undefined;
+    const r = (await window.louvorjaApi?.siteLoader?.aguardar?.()) as { ok?: boolean } | undefined;
     if (r?.ok !== false) return;
   } catch {
     /* invoke rejeitou — fecha abaixo em vez de deixar a tela presa. */
@@ -710,7 +721,10 @@ export async function openVideoProjectionWindows(): Promise<void> {
   if (await isBackgroundOpen()) return;
 
   await openMediaWindow("projection", "video");
-  const returnOn = $userdata.get(KEYS.OPTIONS.ONLINE_VIDEO_PROJECTION.SHOW_RETURN, false) as boolean;
+  const returnOn = $userdata.get(
+    KEYS.OPTIONS.ONLINE_VIDEO_PROJECTION.SHOW_RETURN,
+    false
+  ) as boolean;
   if (await _wantsMediaReturn(returnOn)) await openMediaWindow("return", "video");
   await _openOperatorIfEnabled("video");
 }
@@ -728,12 +742,18 @@ export async function openBibleWindow(): Promise<void> {
 
   let bible = await _target(PROJECTION_TYPE.BIBLE);
   if (!bible.open) bible = await _target(PROJECTION_TYPE.MUSIC);
-  const openReturn = ($userdata.get(KEYS.MODULES.BIBLE.SHOW_RETURN, false) as boolean);
+  const openReturn = $userdata.get(KEYS.MODULES.BIBLE.SHOW_RETURN, false) as boolean;
   const fullscreen = $userdata.get(KEYS.OPTIONS.FULLSCREEN, true) as boolean;
   const alwaysOnTop = $userdata.get(KEYS.OPTIONS.ALWAYS_ON_TOP, true) as boolean;
 
   if (bible.open) {
-    await _open(PROJECTION_URL.BIBLE, PROJECTION_TYPE.BIBLE, bible.monitorId, fullscreen, alwaysOnTop);
+    await _open(
+      PROJECTION_URL.BIBLE,
+      PROJECTION_TYPE.BIBLE,
+      bible.monitorId,
+      fullscreen,
+      alwaysOnTop
+    );
   }
 
   if (openReturn) {
@@ -760,11 +780,18 @@ export async function openBackgroundProjectionWindows(): Promise<void> {
   const background = await _target(PROJECTION_TYPE.BACKGROUND);
   if (background.open) {
     await _open(
-      PROJECTION_URL.BACKGROUND, PROJECTION_TYPE.BACKGROUND, background.monitorId, true, false
+      PROJECTION_URL.BACKGROUND,
+      PROJECTION_TYPE.BACKGROUND,
+      background.monitorId,
+      true,
+      false
     );
   }
 
-  const showReturn = $userdata.get(KEYS.MODULES.BACKGROUND_PROJECTION.SHOW_RETURN, false) as boolean;
+  const showReturn = $userdata.get(
+    KEYS.MODULES.BACKGROUND_PROJECTION.SHOW_RETURN,
+    false
+  ) as boolean;
   if (showReturn) {
     const ret = await _target(PROJECTION_TYPE.BACKGROUND_RETURN);
     if (ret.open) {
@@ -777,16 +804,110 @@ export async function openBackgroundProjectionWindows(): Promise<void> {
       );
     }
   }
+
+  /*
+   * A janela de fundo acabou de nascer e agora é ela que carrega os avisos
+   * (a camada lê o estado dos avisos e monta). Se o aviso ainda está na janela
+   * própria, ele ficaria desenhado DUAS vezes — duas cópias do mesmo vídeo
+   * rodando atrás uma da outra. A ordem é abrir o fundo primeiro: a janela
+   * própria sai depois, e o operador vê o mesmo conteúdo do outro jeito.
+   */
+  if (_avisoNoAr() && (await isWindowOpen(PROJECTION_TYPE.ANNOUNCEMENTS))) {
+    await closeAnnouncementsWindow();
+  }
+}
+
+/*
+ * Qual utilitário (timer, contador, relógio…) está no ar como CAMADA da janela
+ * de fundo agora.
+ *
+ * É o registro do handoff: quando a janela de fundo fecha, quem estava
+ * desenhado nela precisa de volta a janela própria. Sem este registro o
+ * utilitário simplesmente sumiria do telão — enquanto os slides e o vídeo
+ * voltam sozinhos (o estado deles é reemitido) e os avisos ganham a janela de
+ * volta.
+ */
+let _utilitarioNaCamada: string | null = null;
+
+export function setUtilitarioNaCamada(modulo: string | null): void {
+  _utilitarioNaCamada = modulo || null;
+}
+
+export function utilitarioNaCamada(): string | null {
+  return _utilitarioNaCamada;
+}
+
+/**
+ * Devolve a um utilitário a janela própria, para quando a tela de fundo fecha
+ * com ele no ar.
+ *
+ * Mesma cadeia de monitores e mesmas preferências dos avisos: se o utilitário
+ * subir num monitor diferente do que ele ocupava, ele cobriria o operador em
+ * vez do telão.
+ */
+export async function openUtilitarioWindow(modulo: string): Promise<boolean> {
+  if (!modulo) return false;
+  const fullscreen = $userdata.get(KEYS.OPTIONS.FILE_PROJECTION.FULLSCREEN, true) as boolean;
+  const alwaysOnTop = $userdata.get(KEYS.OPTIONS.FILE_PROJECTION.ALWAYS_ON_TOP, true) as boolean;
+  let target = await _target(modulo);
+  if (!target.open) target = await _target(PROJECTION_TYPE.FILE);
+  if (!target.open) target = await _target(PROJECTION_TYPE.MUSIC);
+  if (!target.open) return false;
+  try {
+    await _open(
+      `${PROJECTION_URL.BASE}/module?module=${encodeURIComponent(modulo)}`,
+      modulo,
+      target.monitorId,
+      fullscreen,
+      alwaysOnTop
+    );
+  } catch {
+    /* Sem janela o utilitário simplesmente não volta — melhor que travar o fechamento. */
+    return false;
+  }
+  return isWindowOpen(modulo);
+}
+
+/**
+ * Há aviso (Utilitário) no ar agora?
+ *
+ * O estado dos avisos é um broadcast stateful: o último payload fica guardado,
+ * e é dele que se pergunta quem ainda não recebeu nada nesta sessão.
+ */
+function _avisoNoAr(): boolean {
+  return (
+    ($broadcast.getLastPayload(BROADCAST_TYPE.ANNOUNCEMENTS_STATE) as { active?: boolean } | null)
+      ?.active === true
+  );
 }
 
 /**
  * Fecha as janelas de projeção de fundo.
+ *
+ * Os avisos (Utilitários) renderizam DENTRO da janela de fundo, então fechá-la
+ * no meio de um aviso levaria a projeção junto — o módulo continuaria
+ *ACHANDO que está no ar, e o operador perderia a tela sem ter pedido.
+ *
+ * Quem está no ar quando a janela fecha ganha a janela própria de volta. A
+ * reabertura vem DEPOIS do fechamento de propósito: `openAnnouncementsWindow`
+ * só abre a janela própria quando o fundo já não está aberto (é o portão que o
+ * faz renderizar dentro), e inverter a ordem não abriria nada.
  */
 export async function closeBackgroundProjectionWindows(): Promise<void> {
+  const avisoNoAr = _avisoNoAr();
+  const utilitario = _utilitarioNaCamada;
+  _utilitarioNaCamada = null;
+
   await Promise.all([
     _close(PROJECTION_TYPE.BACKGROUND),
     _close(PROJECTION_TYPE.BACKGROUND_RETURN),
   ]);
+
+  /* A ordem é abrir depois de fechar: `openAnnouncementsWindow` só abre a janela
+     própria quando o fundo já não está no ar (é o portão que a faz renderizar
+     dentro), e o utilitário segue a mesma regra. */
+  if (avisoNoAr) await openAnnouncementsWindow();
+  if (utilitario) await openUtilitarioWindow(utilitario);
 }
 
 /**
@@ -824,34 +945,54 @@ export async function closeMusicProjectionWindows(): Promise<void> {
   if (_musicWindowOpenings.size) {
     const finished = Promise.allSettled([..._musicWindowOpenings]);
     let settled = false;
-    const done = finished.then(() => { settled = true; });
+    const done = finished.then(() => {
+      settled = true;
+    });
     let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([
       done,
-      new Promise<void>((resolve) => { timer = setTimeout(resolve, MUSIC_WINDOW_CLOSE_WAIT_MS); }),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, MUSIC_WINDOW_CLOSE_WAIT_MS);
+      }),
     ]);
     if (timer) clearTimeout(timer);
     if (!settled) {
       void done.then(() => {
         if (generation === _musicWindowGeneration) {
-          void Promise.all([_close(PROJECTION_TYPE.MUSIC), _close(PROJECTION_TYPE.RETURN)]).catch(() => {});
+          void Promise.all([_close(PROJECTION_TYPE.MUSIC), _close(PROJECTION_TYPE.RETURN)]).catch(
+            () => {}
+          );
         }
       });
     }
   }
   if (generation !== _musicWindowGeneration) return;
-  await Promise.all([
-    _close(PROJECTION_TYPE.MUSIC),
-    _close(PROJECTION_TYPE.RETURN),
-  ]);
+  await Promise.all([_close(PROJECTION_TYPE.MUSIC), _close(PROJECTION_TYPE.RETURN)]);
 }
 
 export async function closeBibleWindows(): Promise<void> {
-  await Promise.all([
-    _close(PROJECTION_TYPE.BIBLE),
-    _close(PROJECTION_TYPE.BIBLE_RETURN),
-  ]);
+  await Promise.all([_close(PROJECTION_TYPE.BIBLE), _close(PROJECTION_TYPE.BIBLE_RETURN)]);
 }
 
-export default { openProjectionWindows, closeProjectionWindows, closeBibleWindows, openBibleWindow, openFileProjectionWindows, openAnnouncementsWindow, closeAnnouncementsWindow, openSiteWindow,
-  closeSiteWindow, isSiteProjectionActive, takeSiteKey, forwardSiteKey, openVideoProjectionWindows, openMediaWindow, mediaWindowPlan, currentMediaKind, openBackgroundProjectionWindows, closeBackgroundProjectionWindows };
+export default {
+  openProjectionWindows,
+  openUtilitarioWindow,
+  closeProjectionWindows,
+  isBackgroundOpen,
+  closeBibleWindows,
+  openBibleWindow,
+  openFileProjectionWindows,
+  openAnnouncementsWindow,
+  closeAnnouncementsWindow,
+  openSiteWindow,
+  closeSiteWindow,
+  isSiteProjectionActive,
+  takeSiteKey,
+  forwardSiteKey,
+  openVideoProjectionWindows,
+  openMediaWindow,
+  mediaWindowPlan,
+  currentMediaKind,
+  openBackgroundProjectionWindows,
+  closeBackgroundProjectionWindows,
+};

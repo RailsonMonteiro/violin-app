@@ -1224,10 +1224,10 @@ mesmos):
 ### Fade do telão (`modules.background_projection.fade_duration`)
 
 Um relógio só para tudo que entra e sai na frente da congregação: **música**,
-**bíblia**, **arquivo/vídeo** e **site**.
+**bíblia**, **arquivo/vídeo**, **avisos (Utilitários)** e **site**.
 
-Com a **Projeção de Fundo** aberta, `isBackgroundOpen()` faz a música, a bíblia
-e o arquivo renderizarem **dentro** dela
+Com a **Projeção de Fundo** aberta, `isBackgroundOpen()` faz a música, a bíblia,
+o arquivo e os avisos renderizarem **dentro** dela
 (`src/views/BackgroundProjection.vue` e o espelho
 `BackgroundProjectionReturn.vue`), em vez de abrir janelas próprias. Três
 detalhes sustentam o fade dessas camadas:
@@ -1245,8 +1245,53 @@ detalhes sustentam o fade dessas camadas:
   a camada é removida sem animar. Foi o que escondeu o bug nos testes; sem a raiz
   única, a entrada funciona e a saída não.
 
-Sem a Projeção de Fundo, `FileProjection.vue` e `Projection.vue` continuam
-intactos — elas já têm o seu próprio sistema de transição (`lj-t-*`).
+- **Utilitários (timer, contador, relógio, cronômetro, quadro, painel) entram
+  como mais uma camada** (`.layer-utilitario`, `z-index: 4`). Eles entravam por
+  `/projection/module`, uma **janela fullscreen própria**: aparecia por cima do
+  telão como um retângulo preto, sem fade nenhum — o mesmo defeito que a
+  transparência da janela resolveria, mas que aqui tem solução melhor. O
+  conteúdo saiu para `src/components/ModuleProjectionLayer.vue`, montado tanto
+  pela janela quanto pela janela de fundo (o `moduleId` vem por prop; a janela
+  lia da query string).
+  Três peças — e elas moram em `src/composables/useScreenProjection.ts`, não no
+  botão: não abre janela quando o fundo está no ar, o botão passa a refletir a
+  **camada** em vez da existência da janela, e fechar **desliga a camada** em vez
+  de tentar fechar uma janela que não existe.
+
+  **O botão "Projetar" tem DOIS componentes, e o óbvio não é o que os módulos
+  usam.** `Screen.vue` (em `PlayerActions.vue`) serve o player; o "Projetar" dos
+  módulos vem do manifest (`type: "screen"`) e é renderizado pela ribbon em
+  `src/layout/shell/RibbonScreenButton.vue`. A regra precisa nos dois — e a
+  armadilha é maior do que parece: com a regra só no `Screen.vue`, os testes
+  passavam, a documentação batia, e o timer continuava abrindo janela fullscreen
+  por cima do telão. Por isso a regra é um composable, e `RibbonScreenButton`
+  tem spec própria (`src/layout/shell/__tests__/RibbonScreenButton.spec.ts`).
+
+  **Quem liga a camada é o clique em "Projetar", nunca o valor emitido.**
+  `MODULE_PROJECTION_VALUE` é FLUXO, não estado: contador, relógio e timer
+  emitem `active: true` desde que o módulo abre (o `watch` é `immediate`), muito
+  antes de alguém pedir para projetar. Com janela própria isso não importava —
+  não havia onde aparecer; na janela de fundo faria o telão pintar sozinho.
+  Como não há mais janela, o estado de projeção ganhou sinal próprio:
+  `MODULE_PROJECTION_OPEN` (o clique liga) e `MODULE_PROJECTION_CLOSE` (fecha —
+  o mesmo aviso que o ESC da janela emite). Fechar pelo botão **não** pode mandar
+  `MODULE_PROJECTION_INTENT`: quem consome aquele é a autoridade, que publica o
+  **valor** do módulo, e valor não é visibilidade — o utilitário ficaria preso no
+  telão, com o botão marcado como ligado.
+- **Os avisos entram como mais uma camada** (`.layer-avisos`, `z-index: 3` — a
+  janela própria cobria o telão inteiro). O conteúdo deles foi extraído para
+  `src/modules/announcements/components/ProjectionLayer.vue`, que é montado
+  tanto pela janela própria quanto pela janela de fundo;
+  `openAnnouncementsWindow()` sai cedo quando há fundo aberto e **devolve
+  `true`** mesmo assim, porque a projeção está no ar — devolver `false` faria a
+  liturgia achar que não projetou. O `active: false` do estado dos avisos é que
+  tira a camada, e por isso `ProjectionLayer` **não limpa os slides ao parar**:
+  limpando, o fade de saída mostraria um retângulo preto sumindo em vez do
+  aviso.
+
+Sem a Projeção de Fundo, `FileProjection.vue`, `Projection.vue` e
+`AnnouncementsProjection.vue` continuam intactos — elas já têm o seu próprio
+sistema de transição (`lj-t-*`) e as suas janelas próprias.
 
 ### Uma coisa por vez
 
@@ -1818,12 +1863,51 @@ real e responde pela `RENDERER_RESPONSE_CHANNEL`.
 | GET    | `/api/background-sound`           | —                                             | Estado + biblioteca de som de fundo (permission `background_sound`) |
 | POST   | `/api/background-sound`           | `{ action: play\|pause\|resume\|stop\|play-default, id? }` | Controla o player; `play-default` inicia o som padrão (permission `background_sound`) |
 | POST   | `/api/volume`                     | `{ action: up\|down, step? } \| { action: set, value }` | Volume dos players 0..100 (permission `volume`, só app) |
+| GET    | `/api/media-library`              | `?action=library\|canva\|image`, `lang`, `folderId`, `continuation`, `url` | Acervo/Canva do módulo Biblioteca de Mídia (permission `media_library`) |
+| POST   | `/api/media-library`              | `{ action: project, id } \| { action: canva-project, designId?\|url? } \| { action: playlist, command: add\|remove\|clear\|goto\|play\|next\|prev\|stop, id?/index? }` | Projeta item/design, controla a playlist (permission `media_library`) |
+| GET    | `/api/media-library?action=playlist` | —                                  | Itens da playlist (`modules.media_library.playlist` do userData, servido pelo main) |
+| POST   | `/api/media-library/upload`       | bytes crus + `X-File-Name`/`X-Mime-Type`/`X-Category-Id` | Recebe arquivo do celular em `<dados>/files/library/media/` (permission `media_library`) |
 | GET    | `/api/user-data`                  | `?path=...`                                   | Lê valor do user_data                      |
 | GET    | `/api/db/:path`                   | —                                             | JSON do banco (cache local ou remoto)      |
 | GET    | `/libras/:token`                  | —                                             | Bundle de animação VLibras                 |
 | POST   | `/api/register-device`            | `{ token, name, model, platform }`            | Cadastro de device (antes do auth)         |
 
 Todos os endpoints POST exigem `Content-Type: application/json`.
+
+### Biblioteca de Mídia (acervo + Canva + upload)
+
+A aba **Biblioteca de Mídia** (`src/views/remote_control/RemoteMediaLibrary.vue`,
+`MediaLibraryModulo.kt`/`.swift`) é o primeiro módulo do remoto que **escreve**:
+- **Consulta** (`action=library|canva`) pelo mesmo *renderer round-trip* dos
+  vídeos online — a biblioteca vive no IndexedDB do renderer e o Canva na API
+  `window.louvorjaApi.canva` (pastas com paginação por `continuation`); só
+  metadados voltam ao cliente. O Canva abre na vista **de pastas** (`folderId:
+  "root"`), igual ao `CanvaTab`; `view=designs` pede a listagem de designs
+  (`/designs`, que exige escopo próprio — sem ele o renderer devolve o erro e a
+  UI mostra o motivo em vez do estado vazio).
+- **Projeção** (`project`, por `id`) responde pelo registry (o renderer resolve
+  `louvorja://local` ou reidrata `blob:` do IDB — igual ao executor de
+  liturgia) e devolve ok/erro. `canva-project` é *fire-and-forget*: export de
+  PDF leva minutos e o desktop mostra o progresso na própria UI.
+- **Playlist**: leitura (`action=playlist`) servida pelo **main** direto do
+  userData — sem round-trip, funciona com o módulo do desktop fechado. Os
+  comandos (`add` por id, `remove`/`goto` por índice, `clear`,
+  `play/next/prev/stop`) passam pelo renderer, que grava o userData e avisa o
+  módulo (`module_ribbon_action → playlist-changed`) para recarregar a lista
+  em memória; o shell mantém o ponteiro do "tocando a partir dali".
+- **Upload** (`POST /api/media-library/upload`) é a parte nova: **bytes crus**
+  (`express.json` global tem limite de 100 kb e não consome stream de outro
+  content-type, então o pipe chega inteiro na rota). O main valida a extensão
+  pelo `X-File-Name` (imagem/vídeo/pdf), grava `.tmp` + `rename` em
+  `<dados>/files/library/media/<id>.<ext>` (guarda de path pelo `joinDentroDe`)
+  e avisa o renderer (`action: "saved"`), que registra no IndexedDB com o
+  thumb `louvorja://local`. Teto: 300 MB no servidor (413), 250 MB no cliente.
+- **Miniaturas**: `?action=image&url=` busca os bytes no renderer pelo protocolo
+  `louvorja://` (URLs http(s) — thumbs do Canva — são redirecionadas). Thumbs
+  em dataURL/blob ficam fora do payload: passariam do orçamento e o card
+  mostra o ícone do tipo.
+- **Permission**: `media_library` (403 sem ela nem `root`), no mesmo
+  `Device.ts`/`DEVICE_PERMISSIONS` das demais.
 
 ### Busca de músicas com o acervo pessoal
 
@@ -2044,7 +2128,6 @@ com a aba de slides muda e sem um único aviso.
 Por isso o bridge tem `onerror`: em `CLOSED` ele recria a conexão com folga
 (1s → 2s → 4s → 8s, teto 15s) e publica o estado em `window.__ljSSEState`
 (`connecting` | `open` | `closed`) para uma interface poder avisar o operador.
-
 
 ---
 

@@ -1336,6 +1336,11 @@ useBroadcastListener(BROADCAST_TYPE.MODULE_RIBBON_ACTION, (payload) => {
     case "clear":
       clearPlaylist();
       break;
+    case "playlist-changed":
+      // O controle remoto mexeu na playlist (add/remove/clear): a lista da
+      // tela é estado em memória — recarrega do userData para espelhar.
+      loadPlaylist();
+      break;
     case "manage_categories":
       showManageDialog.value = true;
       break;

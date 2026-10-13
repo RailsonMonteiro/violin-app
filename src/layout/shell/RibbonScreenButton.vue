@@ -37,14 +37,12 @@ import { canOpenWebWindows } from "@/helpers/projection/webWindow";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { LjIcon, LjMenu, type LjMenuItem } from "@/components/ui";
 import { ICONS } from "@/config/Icons";
+import { useScreenProjection } from "@/composables/useScreenProjection";
 import {
   listDisplays,
   getPreferredMonitor,
   setPreferredMonitor,
   identifyDisplays,
-  isOpen as isProjectionOpen,
-  open as openProjection,
-  close as closeProjection,
   getFallbackFeature,
   isUsingFallback,
   getCategorizedDisplays,
@@ -67,7 +65,6 @@ const props = defineProps({
 });
 
 const { t } = useI18n();
-const projection_open = ref(false);
 const displays = ref<any[]>([]);
 const effective_id = ref<number | string | null>(null);
 const explicit_id = ref<number | string | null | undefined>(undefined);
@@ -98,6 +95,25 @@ const fallback_label = computed(() => {
   if (f === "retorno") return t("options.monitors.roles.stage");
   if (f === "operador") return "Operador";
   return f;
+});
+
+/*
+ * A regra de "projetar" é a mesma do player (`Screen.vue`): utilitário com a
+ * Projeção de Fundo ligada não abre janela — vira camada dela, que é o que dá o
+ * fade. Este botão é o que os módulos de fato renderizam.
+ */
+const {
+  aberto: projection_open,
+  refresh: refreshProjection,
+  abrir,
+  fechar,
+  toggle,
+} = useScreenProjection({
+  feature: () => props.feature,
+  route: () => props.route,
+  monitorId: () => effective_id.value,
+  fullscreen: () => props.fullscreen,
+  alwaysOnTop: () => props.alwaysOnTop,
 });
 
 const is_active = computed(() => projection_open.value);
@@ -210,21 +226,11 @@ async function refresh() {
   const usingFallback = await isUsingFallback(props.feature);
   explicit_id.value = usingFallback ? undefined : explicit;
   effective_id.value = await getPreferredMonitor(props.feature);
-  projection_open.value = await isProjectionOpen(props.feature);
+  await refreshProjection();
 }
 
 async function primaryClick() {
-  if (projection_open.value) {
-    await closeProjection(props.feature);
-  } else {
-    await openProjection({
-      feature: props.feature,
-      route: props.route,
-      monitorId: effective_id.value,
-      fullscreen: props.fullscreen,
-      alwaysOnTop: props.alwaysOnTop,
-    });
-  }
+  await toggle();
   await refresh();
 }
 
@@ -232,22 +238,16 @@ async function choose(displayId: number | string | null | undefined) {
   await setPreferredMonitor(props.feature, displayId);
   await refresh();
   if (effective_id.value == null) {
-    if (projection_open.value) await closeProjection(props.feature);
+    if (projection_open.value) await fechar();
   } else {
-    if (projection_open.value) await closeProjection(props.feature);
-    await openProjection({
-      feature: props.feature,
-      route: props.route,
-      monitorId: effective_id.value,
-      fullscreen: props.fullscreen,
-      alwaysOnTop: props.alwaysOnTop,
-    });
+    if (projection_open.value) await fechar();
+    await abrir(effective_id.value);
   }
   await refresh();
 }
 
 async function closeOpen() {
-  await closeProjection(props.feature);
+  await fechar();
   await refresh();
 }
 
@@ -268,8 +268,7 @@ onMounted(async () => {
   // Sem isso, acumula múltiplos polls de 2s e o estado fica inconsistente.
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(async () => {
-    const open = await isProjectionOpen(props.feature);
-    if (open !== projection_open.value) projection_open.value = open;
+    await refreshProjection();
   }, 2000);
 });
 
