@@ -135,6 +135,7 @@
         <tr
           v-for="item in data.data"
           :key="item.id_music"
+          class="lj-music-row"
           :data-testid="`music-row-${item.id_music}`"
         >
           <td>

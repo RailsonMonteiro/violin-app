@@ -95,6 +95,7 @@ for (const stream of [process.stdout, process.stderr]) {
   stream?.on?.("error", () => {});
 }
 const telemetryErrorQueue = require("./main/telemetryErrorQueue.js");
+const { collectSystemInfo } = require("./main/telemetryEnvironment.js");
 const { createRuntimeHealthMonitor } = require("./main/runtimeHealth.js");
 const { createRuntimeWorkDiagnostics } = require("./main/runtimeWorkDiagnostics.js");
 const { createCpuProfileCapture } = require("./main/cpuProfileCapture.js");
@@ -1483,6 +1484,9 @@ ipcMain.on("telemetry:heartbeat", (event, payload) => {
 });
 
 ipcMain.handle("telemetry:pending-main-errors", () => _readPendingMainErrors());
+// Metadados estáveis durante o processo; leitura única, sob demanda e sem argumentos do renderer.
+let systemInfoPromise;
+ipcMain.handle("telemetry:system-info", () => (systemInfoPromise ??= collectSystemInfo()));
 // Qual placa o Chromium escolheu e a taxa de cada monitor: "aceleração ligada"
 // não distingue a placa dedicada da integrada num computador com as duas.
 ipcMain.handle("telemetry:graphics", async () => {

@@ -99,6 +99,9 @@ declare global {
       setMediaActive: (active: boolean) => void;
     };
     telemetry?: {
+      systemInfo?: () => Promise<
+        import("./types/TelemetryEnvironment").DesktopSystemInfo | undefined
+      >;
       log: (payload: {
         level: "trace" | "debug" | "info" | "warn" | "error" | "fatal";
         message: string;
@@ -308,7 +311,7 @@ declare global {
     displays: {
       list: () => Promise<unknown[]>;
       getPreferred: (feature: string) => Promise<{ id: number; bounds: unknown } | null>;
-      setPreferred: (feature: string, displayId: number | string | null) => Promise<void>;
+      setPreferred: (feature: string, displayId: number | string | null | undefined) => Promise<void>;
       getPrefs: () => Promise<Record<string, number | string | null>>;
       getRoles: () => Promise<
         {

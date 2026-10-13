@@ -18,6 +18,8 @@ import Broadcast from "@/helpers/Broadcast";
 import { BROADCAST_TYPE, type TelemetrySessionPayload } from "@/helpers/BroadcastTypes";
 import Platform from "@/helpers/Platform";
 import { normalizeAppVersion } from "@/helpers/AppVersion.js";
+import { collectEnvironment, desktopRuntime } from "@/helpers/TelemetryEnvironment";
+import type { EnvironmentProperties } from "@/types/TelemetryEnvironment";
 import { normalizeOwnProtocolExceptionFrames } from "@/helpers/ExceptionFrames";
 import { cpuProfileLogSummary } from "@/helpers/CpuProfileDiagnostic";
 import {
@@ -41,6 +43,7 @@ let _ph: PostHog | null = null;
 let _appVersion = normalizeAppVersion(packageJson.version) || "unknown";
 let _appVersionSource = "package_json_fallback";
 let _sdkVersion = BUILD_SDK_VERSION || "unknown";
+let _environmentContext: EnvironmentProperties = {};
 let _installed = false;
 let _nativeAutocaptureActive = false;
 let _responsivenessCleanup: (() => void) | null = null;
@@ -324,9 +327,8 @@ function runtimeContext(): Record<string, unknown> {
     target: Platform.isDesktop ? "electron" : "web",
     app_platform: appPlatform(),
     os: osName(),
-    electron_version: api?.runtime?.electron || Platform.electronVersion || undefined,
-    chromium_version: api?.runtime?.chrome || undefined,
-    node_version: api?.runtime?.node || undefined,
+    ...(Platform.isDesktop ? desktopRuntime(api) : {}),
+    ..._environmentContext,
     is_dev: Platform.isDev,
   };
 }
@@ -1579,6 +1581,7 @@ export function setEnabled(enabled: boolean): void {
   if (_ph) {
     _ph.opt_in_capturing({ captureEventName: false });
     _ph.register({
+      ..._environmentContext,
       app_version: _appVersion,
       app_version_source: _appVersionSource,
       sdk_version: _sdkVersion,
@@ -1602,6 +1605,7 @@ export function resetId(): void {
   if (isEnabled()) _ph.opt_in_capturing({ captureEventName: false });
   else _ph.opt_out_capturing();
   _ph.register({
+    ..._environmentContext,
     app_version: _appVersion,
     app_version_source: _appVersionSource,
     sdk_version: _sdkVersion,
@@ -1652,6 +1656,16 @@ export async function init(): Promise<void> {
 async function _init(): Promise<void> {
   const { default: posthog } = await importPostHogWithTransportDiagnostics();
   const version = (await appVersion()) || "unknown";
+  // A leitura só começa com telemetria habilitada. IPC/Client Hints têm prazo
+  // limitado e a preferência é conferida novamente após a espera.
+  if (!isEnabled()) return;
+  _environmentContext = await collectEnvironment({
+    desktop: Platform.isDesktop,
+    platform: Platform.platform,
+    api: typeof window !== "undefined" ? window.louvorjaApi : undefined,
+    navigatorInfo: typeof navigator !== "undefined" ? navigator : undefined,
+  });
+  if (!isEnabled()) return;
   _appVersion = version;
   const sdkVersion =
     typeof (posthog as PostHog & { LIB_VERSION?: unknown }).LIB_VERSION === "string"
@@ -1833,6 +1847,7 @@ async function _init(): Promise<void> {
   // opção ficaria sem telemetria para sempre, com o toggle marcado.
   posthog.opt_in_capturing({ captureEventName: false });
   posthog.register({
+    ..._environmentContext,
     app_version: version,
     app_version_source: _appVersionSource,
     sdk_version: sdkVersion,
@@ -1915,6 +1930,7 @@ async function _init(): Promise<void> {
       platform: Platform.isDesktop ? "desktop" : "web",
       app_platform: appPlatform(),
       os: osName(),
+      ..._environmentContext,
       app_version: version,
       app_version_source: _appVersionSource,
       // Explícito em vez de depender só do `register()` acima: o evento

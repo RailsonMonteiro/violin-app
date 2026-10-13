@@ -211,6 +211,13 @@ export const contextualPages: RibbonPage[] = [
 | `screen`         | Botão de projeção com seletor de monitores      |
 | `customCategory` | Grupo inteiro substituído por componente Vue    |
 
+O seletor do botão `screen` salva o monitor apenas para a feature daquele
+utilitário. No Electron, `options.displays.feature_displays` guarda a identidade
+do monitor escolhido sem alterar os papéis globais de Opções → Monitores.
+“Usar padrão” remove a escolha individual e volta ao papel do módulo; “Mesma
+janela” desativa somente aquela feature. Se o monitor escolhido estiver ausente,
+a resolução não deve cair em outro monitor por herança.
+
 ### Ciclo de vida e desempenho das abas
 
 `src/layout/Modules.vue` importa o componente de cada módulo sob demanda. Para

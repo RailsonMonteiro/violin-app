@@ -60,6 +60,8 @@ describe("preload IPC contract", () => {
     await api.userdata.fetch();
     await api.userdata.patch({ path: "options.theme", value: "dark", _src: "test" });
     await api.app.info();
+    // Nenhum argumento do renderer pode virar caminho de arquivo ou canal IPC.
+    await api.telemetry.systemInfo("/private/file");
     await api.dev.setLogForwarding(true);
     await api.dev.reloadAll();
     await api.dev.openDevTools();
@@ -71,6 +73,7 @@ describe("preload IPC contract", () => {
         args: [{ path: "options.theme", value: "dark", _src: "test" }],
       },
       { channel: "app:info", args: [] },
+      { channel: "telemetry:system-info", args: [] },
       { channel: "dev:setLogForwarding", args: [true] },
       { channel: "dev:reloadAll", args: [] },
       { channel: "dev:openDevTools", args: [] },

@@ -50,6 +50,7 @@
         <tr
           v-for="item in data.data"
           :key="item.id_music"
+          class="lj-music-row"
           :class="{ 'hymnal-row--selected': selectedId === item.id_music }"
           @click="selectedId = item.id_music"
         >
@@ -266,8 +267,9 @@ function close() {
 }
 
 .hymnal-row--selected {
-  background: rgba(27, 79, 138, 0.12);
-  outline: 2px solid rgba(27, 79, 138, 0.3);
+  --lj-music-row-bg: color-mix(in srgb, var(--lj-ui-accent) 10%, var(--lj-surface-bg));
+
+  outline: 2px solid color-mix(in srgb, var(--lj-ui-accent) 30%, transparent);
   outline-offset: -2px;
 }
 </style>

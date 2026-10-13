@@ -350,8 +350,10 @@ export const KEYS = {
     CLOCK_PROJECTION_ON_BOOT: `${OPTIONS}.clock_projection_on_boot`,
     DISPLAYS: {
       PREFERRED: `${OPTIONS_DISPLAYS}.monitor_preferred`,
-      /** Papel de monitor escolhido por módulo (web/PWA; no desktop vive em roles). */
+      /** Papel de monitor escolhido por módulo. */
       FEATURE_ROLES: `${OPTIONS_DISPLAYS}.features`,
+      /** Identidade de monitor escolhida apenas para uma feature no desktop. */
+      FEATURE_DISPLAYS: `${OPTIONS_DISPLAYS}.feature_displays`,
       /** Monitor atribuído a cada papel. */
       ROLES: `${OPTIONS_DISPLAYS}.roles`,
       PRIMARY: `${OPTIONS_DISPLAYS}.monitor_primary`,

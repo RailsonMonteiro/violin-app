@@ -51,6 +51,7 @@ const FEATURE_GROUP: Record<string, "presentation" | "return"> = {
   message_board: "presentation",
   stopwatch: "presentation",
   timer: "presentation",
+  timer_worship: "presentation",
   // Stage display / monitor de retorno (visível ao músico/operador)
   clock: "return",
   // A tela de relógio independente usada no boot mantém a mesma escolha do
@@ -173,10 +174,24 @@ async function _getRawPreferred(feature: string): Promise<number | string | null
   return prefs[feature] ?? null;
 }
 
+async function _hasExplicitPreference(feature: string): Promise<boolean> {
+  const api = await _getDisplaysApi();
+  let prefs = $userdata.get(KEYS.OPTIONS.DISPLAYS.PREFERRED, {});
+  if (api?.getPrefs) {
+    try {
+      prefs = await api.getPrefs();
+    } catch {
+      // IPC indisponível: mantém o menu utilizável com a preferência local.
+    }
+  }
+  return prefs != null && Object.prototype.hasOwnProperty.call(prefs, feature);
+}
+
 /**
  * Retorna o monitorId preferido da feature, ou null se "mesma janela".
  *
- * Aplica fallback hierárquico:
+ * No desktop, o main resolve a escolha individual ou o papel herdado.
+ * No navegador, aplica fallback hierárquico:
  *   1. Tenta a preferência explícita da feature (ex: "clock")
  *   2. Se nada, herda do grupo (ex: clock -> "retorno", bible -> "musicas")
  *   3. Se ainda nada, retorna null (mesma janela)
@@ -188,19 +203,14 @@ export async function getPreferredMonitor(
   feature: string,
   opts: { explicit?: boolean } = {}
 ): Promise<number | string | null> {
+  if (opts.explicit && !(await _hasExplicitPreference(feature))) return null;
   const own = await _getRawPreferred(feature);
   if (own != null || opts.explicit) return own;
 
-  // "Mesma janela" escolhida para esta feature não deve herdar o monitor da
-  // música/retorno ao passar pelo fallback hierárquico.
+  // O main já resolve o papel e a escolha individual. null pode significar
+  // monitor desconectado: aplicar outro fallback aqui projetaria na tela errada.
   const api = await _getDisplaysApi();
-  if (api?.getFeatureRole) {
-    try {
-      if ((await api.getFeatureRole(_featureKey(feature))) == null) return null;
-    } catch {
-      // IPC indisponível: conserva o fallback antigo em vez de bloquear a UI.
-    }
-  }
+  if (api?.getFeatureRole || await _hasExplicitPreference(feature)) return null;
 
   const fallback = _fallbackFeature(feature);
   if (fallback) return await _getRawPreferred(fallback);
@@ -215,11 +225,10 @@ export function getFallbackFeature(feature: string): string | null {
 
 /** True se a feature está usando a preferência herdada (sem escolha explícita). */
 export async function isUsingFallback(feature: string): Promise<boolean> {
-  const own = await _getRawPreferred(feature);
-  return own == null && _fallbackFeature(feature) != null;
+  return _fallbackFeature(feature) != null && !(await _hasExplicitPreference(feature));
 }
 
-/** Salva o monitorId preferido para a feature. Use null para "mesma janela". */
+/** Salva apenas nesta feature. null = mesma janela; undefined = usar padrão. */
 export async function setPreferredMonitor(
   feature: string,
   monitorId: number | string | null | undefined
@@ -227,12 +236,7 @@ export async function setPreferredMonitor(
   const api = await _getDisplaysApi();
   if (api?.setPreferred) {
     try {
-      await api.setPreferred(_featureKey(feature), monitorId ?? null);
-      // "Padrão herdado" limpa a escolha explícita sem desativar o papel.
-      // null, ao contrário, significa "Mesma janela" para esta feature.
-      if (monitorId === undefined && api.setFeatureRole) {
-        await api.setFeatureRole(_featureKey(feature), roleOfFeature(feature));
-      }
+      await api.setPreferred(_featureKey(feature), monitorId);
       return;
     } catch {
       /* falha silenciosa — usa fallback */
@@ -244,7 +248,7 @@ export async function setPreferredMonitor(
       number | string | null
     >) ?? {}),
   };
-  if (monitorId == null) delete prefs[feature];
+  if (monitorId === undefined) delete prefs[feature];
   else prefs[feature] = monitorId;
   $userdata.set(KEYS.OPTIONS.DISPLAYS.PREFERRED, prefs);
 }
