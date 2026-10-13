@@ -4,6 +4,7 @@ import { ErrorTracking } from "@posthog/core";
 const state: Record<string, unknown> = {};
 const platform = vi.hoisted(() => ({
   isDesktop: false,
+  platform: null as string | null,
   isDev: false,
   updater: undefined as { status: () => Promise<{ version?: unknown }> } | undefined,
 }));
@@ -96,6 +97,7 @@ async function loadTelemetry(version = "2.0.0-beta.8") {
 
 beforeEach(() => {
   platform.isDesktop = false;
+  platform.platform = null;
   platform.updater = undefined;
   for (const key of Object.keys(state)) delete state[key];
   bus.listeners.clear();
@@ -348,6 +350,96 @@ describe("Telemetry", () => {
       "performance_measurement",
       expect.objectContaining({ measurement: "module.open" })
     );
+  });
+
+  describe("versão nativa do macOS", () => {
+    it("não consulta o ambiente com telemetria desligada nem inicializa o SDK se desligar durante a leitura", async () => {
+      let resolveInfo: (_info: unknown) => void = () => {};
+      const systemInfo = vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveInfo = resolve;
+          })
+      );
+      platform.isDesktop = true;
+      platform.platform = "darwin";
+      vi.stubGlobal("louvorjaApi", { telemetry: { systemInfo } });
+      const Telemetry = await loadTelemetry();
+      state["options.telemetry"] = false;
+      await Telemetry.init();
+      expect(systemInfo).not.toHaveBeenCalled();
+      state["options.telemetry"] = true;
+      const initializing = Telemetry.init();
+      await vi.waitFor(() => expect(systemInfo).toHaveBeenCalledTimes(1));
+      Telemetry.setEnabled(false);
+      resolveInfo({ platform: "darwin", systemVersion: "26.0.1" });
+      await initializing;
+      expect(posthog.init).not.toHaveBeenCalled();
+      expect(posthog.capture).not.toHaveBeenCalled();
+    });
+
+    it("envia a versão nativa no boot, nos eventos e após reset ou reativação", async () => {
+      platform.isDesktop = true;
+      platform.platform = "darwin";
+      vi.stubGlobal("louvorjaApi", {
+        telemetry: { systemInfo: async () => ({ platform: "darwin", systemVersion: "26.0.1" }) },
+      });
+      vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+      );
+      const Telemetry = await loadTelemetry();
+      await Telemetry.init();
+      expect(posthog.capture).toHaveBeenCalledWith(
+        "app_opened",
+        expect.objectContaining({ macos_version: "26.0.1" }),
+        expect.anything()
+      );
+      Telemetry.track("module_opened", { module: "music" });
+      expect(posthog.capture).toHaveBeenCalledWith(
+        "module_opened",
+        expect.objectContaining({ macos_version: "26.0.1" })
+      );
+      Telemetry.resetId();
+      expect(posthog.register.mock.lastCall?.[0]).toHaveProperty("macos_version", "26.0.1");
+      Telemetry.setEnabled(false);
+      const count = posthog.capture.mock.calls.length;
+      Telemetry.track("module_opened");
+      expect(posthog.capture).toHaveBeenCalledTimes(count);
+      Telemetry.setEnabled(true);
+      expect(posthog.register.mock.lastCall?.[0]).toHaveProperty("macos_version", "26.0.1");
+      expect(posthog.register.mock.calls.every(([props]) => !("$os_version" in props))).toBe(true);
+      Telemetry.setEnabled(false);
+    });
+
+    it.each([
+      { desktop: false, os: "darwin", version: "26.0.1" },
+      { desktop: true, os: "win32", version: "10.0.26100" },
+      { desktop: true, os: "linux", version: "6.8.0" },
+      { desktop: true, os: "darwin", version: undefined },
+      { desktop: true, os: "darwin", version: "" },
+      { desktop: true, os: "darwin", version: "Darwin 25.0.0" },
+      { desktop: true, os: "darwin", version: 26 },
+    ])("omite versão sem uma leitura nativa válida: %j", async ({ desktop, os, version }) => {
+      platform.isDesktop = desktop;
+      platform.platform = os;
+      vi.stubGlobal(
+        "louvorjaApi",
+        version === undefined
+          ? undefined
+          : {
+              telemetry: { systemInfo: async () => ({ platform: os, systemVersion: version }) },
+            }
+      );
+      const Telemetry = await loadTelemetry();
+      await Telemetry.init();
+      const opened = posthog.capture.mock.calls.find(([event]) => event === "app_opened");
+      expect(opened).toBeDefined();
+      expect(opened?.[1]).not.toHaveProperty("macos_version");
+      expect(posthog.register.mock.calls.every(([props]) => !("macos_version" in props))).toBe(
+        true
+      );
+      Telemetry.setEnabled(false);
+    });
   });
 
   describe("versão do aplicativo", () => {

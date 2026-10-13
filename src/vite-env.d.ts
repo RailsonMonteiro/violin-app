@@ -99,6 +99,9 @@ declare global {
       setMediaActive: (active: boolean) => void;
     };
     telemetry?: {
+      systemInfo?: () => Promise<
+        import("./types/TelemetryEnvironment").DesktopSystemInfo | undefined
+      >;
       log: (payload: {
         level: "trace" | "debug" | "info" | "warn" | "error" | "fatal";
         message: string;

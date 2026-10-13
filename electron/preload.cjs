@@ -53,7 +53,7 @@ contextBridge.exposeInMainWorld("louvorjaApi", {
   /** true quando rodando em desenvolvimento (ELECTRON_DEV=1 ou executável não empacotado). */
   isDev: process.env.ELECTRON_DEV === "1" || process.defaultApp,
 
-  /** Versões do runtime para diagnosticar diferenças entre instalações Windows. */
+  /** Versões nativas para diagnosticar diferenças entre instalações. */
   runtime: {
     electron: process.versions.electron,
     chrome: process.versions.chrome,
@@ -84,6 +84,7 @@ contextBridge.exposeInMainWorld("louvorjaApi", {
     heartbeat: (payload) => ipcRenderer.send("telemetry:heartbeat", payload),
     getPendingMainErrors: () => ipcRenderer.invoke("telemetry:pending-main-errors"),
     graphics: () => ipcRenderer.invoke("telemetry:graphics"),
+    systemInfo: () => ipcRenderer.invoke("telemetry:system-info"),
     ackMainError: (id) => ipcRenderer.invoke("telemetry:ack-main-error", id),
     onMainError: (cb) => {
       const handler = (_event, payload) => cb(payload);
