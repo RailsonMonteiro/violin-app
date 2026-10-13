@@ -27,6 +27,8 @@ vi.mock("@/config/Api", () => ({
 }));
 
 import BundleInstaller from "@/helpers/BundleInstaller";
+import packageJson from "@root/package.json";
+import { BUNDLE_VALIDATION_REVISION } from "@/types/Bundle";
 
 beforeEach(() => rows.clear());
 
@@ -61,4 +63,33 @@ it("não confia em marcador antigo nem usa catálogo como Bíblia completa", asy
   });
   expect(await BundleInstaller.hasBundleMarker()).toBe(true);
   expect(await BundleInstaller.hasBundleMarker("full")).toBe(false);
+});
+
+describe("BundleInstaller.catalogNeedsRefreshForApp", () => {
+  const marker = (data: Record<string, unknown>) =>
+    rows.set("__bundle_marker__", {
+      id: "__bundle_marker__",
+      data: { kind: "catalog", validation_revision: BUNDLE_VALIDATION_REVISION, ...data },
+    });
+
+  it("catálogo instalado por outra versão do app pede renovação", async () => {
+    marker({ version_number: 185, app_version: "0.0.0-antiga" });
+    expect(await BundleInstaller.catalogNeedsRefreshForApp()).toBe(true);
+  });
+
+  it("marcador de antes de existir a versão do app também pede renovação", async () => {
+    marker({ version_number: 185 });
+    expect(await BundleInstaller.catalogNeedsRefreshForApp()).toBe(true);
+  });
+
+  it("catálogo desta versão não pede nada", async () => {
+    marker({ version_number: 185, app_version: packageJson.version });
+    expect(await BundleInstaller.catalogNeedsRefreshForApp()).toBe(false);
+  });
+
+  it("sem catálogo válido não há o que renovar: a instalação normal cuida", async () => {
+    expect(await BundleInstaller.catalogNeedsRefreshForApp()).toBe(false);
+    rows.set("__bundle_marker__", { id: "__bundle_marker__", data: { version_number: 185 } });
+    expect(await BundleInstaller.catalogNeedsRefreshForApp()).toBe(false);
+  });
 });

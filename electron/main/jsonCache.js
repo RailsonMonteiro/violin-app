@@ -264,6 +264,43 @@ async function clearCache() {
   }
 }
 
+/** Arquivo, dentro do cache, que guarda a versão do app que o preencheu. */
+const VERSION_MARKER = ".app-version";
+
+/**
+ * Esvazia o cache de JSON quando o app foi atualizado.
+ *
+ * As respostas guardadas aqui trazem os endereços de mídia que o servidor
+ * entregava na época. Quando eles mudam (domínio de arquivos, formato), o cache
+ * continuaria servindo o endereço velho por 24 h, ou para sempre se o aparelho
+ * ficar offline. Cada versão nova começa limpa e baixa de novo o que usar.
+ *
+ * @param {string} appVersion
+ * @returns {Promise<{ purged: boolean, removed: number }>}
+ */
+async function purgeOnAppUpdate(appVersion) {
+  const dir = CACHE_DIR();
+  const marker = path.join(dir, VERSION_MARKER);
+  let stored = null;
+  try {
+    stored = (await fs.readFile(marker, "utf8")).trim();
+  } catch {
+    stored = null;
+  }
+  if (stored === appVersion) return { purged: false, removed: 0 };
+
+  await fs.ensureDir(dir);
+  let removed = 0;
+  for (const name of await fs.readdir(dir)) {
+    if (name === VERSION_MARKER) continue;
+    await fs.remove(path.join(dir, name));
+    removed += 1;
+  }
+  await fs.writeFile(marker, String(appVersion));
+  if (removed > 0) console.log(`[jsonCache] Cache limpo na atualização para ${appVersion}: ${removed} itens`);
+  return { purged: removed > 0, removed };
+}
+
 /**
  * Retorna o caminho do diretório de cache (debug / módulo update).
  * @returns {string}
@@ -272,4 +309,4 @@ function dir() {
   return CACHE_DIR();
 }
 
-module.exports = { fetchJson, clearCache, dir, safeLocalPath };
+module.exports = { fetchJson, clearCache, dir, safeLocalPath, purgeOnAppUpdate };

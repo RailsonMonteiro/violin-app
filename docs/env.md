@@ -84,6 +84,26 @@ Se ambas falharem, o app usa cache stale quando disponível.
 
 ---
 
+### `VITE_URL_MEDIA`
+
+| Campo       | Valor                                          |
+|-------------|------------------------------------------------|
+| Tipo        | URL (string)                                   |
+| Exemplo     | `https://files.louvorja.com.br`                |
+| Padrão      | `https://files.louvorja.com.br`                |
+| Usado em    | `config/Api.ts`, `helpers/MediaUrl.ts`         |
+
+Endereço público dos arquivos de mídia. O catálogo já entrega cada `url_*`
+completa; esta variável só serve para reconhecer, na web, o que foi baixado
+quando a mídia ainda saía pelo `<API>/file/...` e mudar a chave do arquivo no
+Cache Storage para o endereço atual (migração feita uma vez, no boot).
+
+A cada versão nova do app o catálogo guardado é renovado: o desktop esvazia o
+cache de JSON (`<dados>/json_db`) e todas as plataformas baixam de novo o pacote
+de catálogo, sem a Bíblia.
+
+---
+
 ### `VITE_URL_API_FALLBACK_TOKEN`
 
 | Campo       | Valor                                          |
@@ -241,6 +261,7 @@ O script `npm run electron:build` injetará essa variável automaticamente.
 | `VITE_PATH_FILES`       | Não         | `/file`                      | `import.meta.env`  |
 | `VITE_API_TOKEN`        | Sim (prod)  | *(sem auth em dev local)*    | `import.meta.env`  |
 | `VITE_URL_API_FALLBACK` | Não         | *(vazio)*                    | `import.meta.env`  |
+| `VITE_URL_MEDIA`        | Não         | `https://files.louvorja.com.br` | `import.meta.env`  |
 | `VITE_URL_API_FALLBACK_TOKEN` | Não  | herda `VITE_API_TOKEN`       | `import.meta.env`  |
 | `VITE_APP_MODE`         | Não         | `"production"`               | `import.meta.env`  |
 | `VITE_APP_VERSION`      | Não         | versão de `package.json`     | `import.meta.env`  |

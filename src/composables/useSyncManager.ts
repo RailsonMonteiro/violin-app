@@ -1275,6 +1275,34 @@ export function useSyncManager() {
    * música — ~2 mil requisições por instalação se o catálogo não estiver no
    * disco. O pacote de catálogo traz esses dados, sem capítulos bíblicos, em um único GET.
    */
+  let catalogRefreshPromise: Promise<boolean> | null = null;
+  let catalogRefreshFailedAt = 0;
+
+  /**
+   * Renova o catálogo uma vez por versão do app: baixa o pacote de catálogo (um
+   * GET, sem a Bíblia) e o grava por cima, de forma atômica. É o "reset" que
+   * faz o app deixar de usar endereços guardados por versões anteriores. Sem
+   * rede, mantém o catálogo atual e tenta de novo no próximo boot.
+   */
+  async function refreshCatalogAfterUpdate(): Promise<boolean> {
+    if (catalogRefreshPromise) return catalogRefreshPromise;
+    if (Date.now() - catalogRefreshFailedAt < BUNDLE_RETRY_COOLDOWN_MS) return false;
+
+    const pending = (async (): Promise<boolean> => {
+      if (!(await BundleInstaller.catalogNeedsRefreshForApp())) return false;
+      const installed = await downloadBundle({ catalogOnly: true, force: true });
+      if (!installed) catalogRefreshFailedAt = Date.now();
+      return installed;
+    })();
+
+    catalogRefreshPromise = pending;
+    try {
+      return await pending;
+    } finally {
+      if (catalogRefreshPromise === pending) catalogRefreshPromise = null;
+    }
+  }
+
   async function ensureCatalogBundle(): Promise<boolean> {
     if (catalogReady) return true;
     if (catalogEnsurePromise) return catalogEnsurePromise;
@@ -1620,6 +1648,7 @@ export function useSyncManager() {
     cancelBundle,
     ensureBibleBundle,
     ensureCatalogBundle,
+    refreshCatalogAfterUpdate,
     cleanup,
   };
 }

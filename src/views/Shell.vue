@@ -163,6 +163,8 @@ const shellOnline = () => $appdata.get<boolean>(KEYS.SHELL.IS_ONLINE, true) !== 
 
 function autoInstallCatalog(): void {
   if (!catalogAutoInstallArmed) return;
+  // Atualizou o app: renova o catálogo guardado (em qualquer plataforma).
+  if (shellOnline()) void sync.refreshCatalogAfterUpdate();
   const context = {
     desktop: Platform.isDesktop,
     installed: appInstalled.value,

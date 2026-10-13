@@ -6,6 +6,11 @@ const fetchMock = vi.fn();
 vi.mock("@/config/Api", () => ({
   API_URL: "https://api.test",
   API_URL_FILES: "https://api.test/file",
+  MEDIA_URL: "https://files.louvorja.com.br",
+  LEGACY_MEDIA_PREFIXES: [
+    "https://api.louvorja.workers.dev/file",
+    "https://api.louvorja.com.br/file",
+  ],
 }));
 vi.mock("@/helpers/Http", () => ({
   NET_TIMEOUT: { MEDIA: 1, QUICK: 1 },

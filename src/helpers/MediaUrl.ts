@@ -1,30 +1,19 @@
-import { API_URL_FILES } from "@/config/Api";
-
-/** Armazenamento público da mídia: o catálogo atual já aponta para ele. */
-const MEDIA_ORIGIN = "https://files.louvorja.com.br";
+import { API_URL_FILES, LEGACY_MEDIA_PREFIXES, MEDIA_URL } from "@/config/Api";
 
 /**
- * Catálogos guardados antes de 11/10/2026 trazem a mídia como
- * `https://api.louvorja.(workers.dev|com.br)/file/<caminho>`. O número do banco
- * não mudou, então o app nunca renovou essas linhas e continuaria baixando pela
- * API, que conta cada arquivo na cota diária. O mesmo caminho existe em
- * `files.louvorja.com.br`.
- */
-const LEGACY_API_FILE = /^https?:\/\/api\.louvorja\.(?:workers\.dev|com\.br)\/file\/(.+)$/i;
-
-/**
- * Endereço atual de uma mídia que ainda aponta para o `/file` da API, ou `null`
- * quando o endereço já é outro. O Cache Storage da web é indexado por URL, então
- * quem guardou arquivos com o endereço antigo precisa mudar a chave junto.
+ * Endereço atual de uma mídia guardada com o endereço antigo (`<API>/file/...`),
+ * ou `null` quando ela não é desse tipo. Não é usado ao ler o catálogo: o
+ * catálogo é renovado a cada atualização do app. Serve só para mudar a chave de
+ * arquivos que a web já baixou, porque o Cache Storage é indexado pela URL.
  */
 export function currentUrlOfLegacyMedia(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    const legacy = LEGACY_API_FILE.exec(parsed.origin + parsed.pathname);
-    return legacy ? `${MEDIA_ORIGIN}/${legacy[1]}${parsed.search}` : null;
-  } catch {
-    return null;
+  const base = (MEDIA_URL || "").replace(/\/+$/, "");
+  if (!base) return null;
+  for (const prefix of LEGACY_MEDIA_PREFIXES ?? []) {
+    const root = prefix.replace(/\/+$/, "");
+    if (root && url.startsWith(`${root}/`)) return `${base}/${url.slice(root.length + 1)}`;
   }
+  return null;
 }
 
 export interface MediaReference {
@@ -55,9 +44,7 @@ export function resolveMediaReference(value: string | null | undefined): MediaRe
     try {
       const parsed = new URL(raw);
       const relativePath = normalizePathname(parsed.pathname);
-      if (!relativePath) return null;
-      const url = currentUrlOfLegacyMedia(parsed.toString()) ?? parsed.toString();
-      return { url, relativePath };
+      return relativePath ? { url: parsed.toString(), relativePath } : null;
     } catch {
       return null;
     }

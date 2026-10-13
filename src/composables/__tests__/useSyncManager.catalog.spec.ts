@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
   events: [] as string[],
   platform: { isDesktop: true, storage: undefined as unknown },
   hasBundleMarker: vi.fn(),
+  needsRefresh: vi.fn(),
   fullInstall: vi.fn(),
   bibleIsInstalled: vi.fn(),
   bibleInstall: vi.fn(),
@@ -22,7 +23,11 @@ vi.mock("vue-i18n", () => ({
 }));
 vi.mock("@/helpers/Platform", () => ({ default: h.platform }));
 vi.mock("@/helpers/BundleInstaller", () => ({
-  default: { hasBundleMarker: h.hasBundleMarker, install: h.fullInstall },
+  default: {
+    hasBundleMarker: h.hasBundleMarker,
+    catalogNeedsRefreshForApp: h.needsRefresh,
+    install: h.fullInstall,
+  },
 }));
 vi.mock("@/helpers/BibleBundleInstaller", () => ({
   default: { isInstalled: h.bibleIsInstalled, install: h.bibleInstall },
@@ -71,9 +76,16 @@ beforeEach(() => {
   h.events.length = 0;
   h.platform.isDesktop = true;
   h.platform.storage = { checkLocal: vi.fn(async () => ({})) };
-  for (const fn of [h.hasBundleMarker, h.fullInstall, h.bibleIsInstalled, h.bibleInstall]) {
+  for (const fn of [
+    h.hasBundleMarker,
+    h.needsRefresh,
+    h.fullInstall,
+    h.bibleIsInstalled,
+    h.bibleInstall,
+  ]) {
     fn.mockReset();
   }
+  h.needsRefresh.mockResolvedValue(false);
   h.dbGet.mockReset();
   h.dbGetLocal.mockReset();
   h.storedIds.mockReset();
@@ -239,6 +251,41 @@ describe("Verificação Inicial leve", () => {
 
     expect(result.cachedAlbums).toEqual(new Set());
     expect(result.partialAlbums?.size ?? 0).toBe(0);
+  });
+});
+
+describe("catálogo renovado a cada versão do app", () => {
+  it("catálogo de outra versão: reinstala o pacote de catálogo por cima, sem a Bíblia", async () => {
+    h.needsRefresh.mockResolvedValue(true);
+    const sync = await mountSync();
+
+    const refreshed = await sync.refreshCatalogAfterUpdate();
+
+    expect(refreshed).toBe(true);
+    expect(h.fullInstall).toHaveBeenCalledTimes(1);
+    expect(h.fullInstall).toHaveBeenCalledWith(
+      expect.objectContaining({ catalogOnly: true, force: true })
+    );
+    expect(h.bibleInstall).not.toHaveBeenCalled();
+  });
+
+  it("catálogo da versão atual (ou ainda inexistente): não baixa nada", async () => {
+    h.needsRefresh.mockResolvedValue(false);
+    const sync = await mountSync();
+
+    expect(await sync.refreshCatalogAfterUpdate()).toBe(false);
+    expect(h.fullInstall).not.toHaveBeenCalled();
+  });
+
+  it("falha na rede mantém o catálogo e não insiste no mesmo boot", async () => {
+    h.needsRefresh.mockResolvedValue(true);
+    h.fullInstall.mockRejectedValue(new Error("offline"));
+    const sync = await mountSync();
+
+    expect(await sync.refreshCatalogAfterUpdate()).toBe(false);
+    expect(await sync.refreshCatalogAfterUpdate()).toBe(false);
+
+    expect(h.fullInstall).toHaveBeenCalledTimes(1);
   });
 });
 

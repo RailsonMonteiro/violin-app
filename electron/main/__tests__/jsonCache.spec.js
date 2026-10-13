@@ -125,3 +125,58 @@ describe("jsonCache — falha de rede × resposta ruim", () => {
     expect(JSON.parse(resultado.body.toString("utf-8"))).toEqual([{ id: 1 }]);
   });
 });
+
+describe("jsonCache — limpeza quando o app é atualizado", () => {
+  const { mkdirSync, writeFileSync, readdirSync, readFileSync } = require("node:fs");
+
+  function novoCache() {
+    cacheRoot = mkdtempSync(join(tmpdir(), "louvorja-purge-"));
+    const dir = join(cacheRoot, "json_db");
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  it("primeira execução com cache antigo: limpa e registra a versão", async () => {
+    const dir = novoCache();
+    writeFileSync(join(dir, "music_1.json"), "{}");
+    mkdirSync(join(dir, "sub"));
+    writeFileSync(join(dir, "sub", "album_1.json"), "{}");
+
+    const result = await jsonCache.purgeOnAppUpdate("2.0.0-beta.17");
+
+    expect(result).toEqual({ purged: true, removed: 2 });
+    expect(readdirSync(dir)).toEqual([".app-version"]);
+    expect(readFileSync(join(dir, ".app-version"), "utf8")).toBe("2.0.0-beta.17");
+  });
+
+  it("mesma versão: não mexe no cache", async () => {
+    const dir = novoCache();
+    writeFileSync(join(dir, ".app-version"), "2.0.0-beta.17");
+    writeFileSync(join(dir, "music_1.json"), "{}");
+
+    const result = await jsonCache.purgeOnAppUpdate("2.0.0-beta.17");
+
+    expect(result).toEqual({ purged: false, removed: 0 });
+    expect(readdirSync(dir).sort()).toEqual([".app-version", "music_1.json"]);
+  });
+
+  it("versão nova: limpa de novo e atualiza o registro", async () => {
+    const dir = novoCache();
+    writeFileSync(join(dir, ".app-version"), "2.0.0-beta.16");
+    writeFileSync(join(dir, "music_1.json"), "{}");
+
+    const result = await jsonCache.purgeOnAppUpdate("2.0.0-beta.17");
+
+    expect(result).toEqual({ purged: true, removed: 1 });
+    expect(readFileSync(join(dir, ".app-version"), "utf8")).toBe("2.0.0-beta.17");
+  });
+
+  it("pasta ainda inexistente: cria e registra, sem erro", async () => {
+    cacheRoot = mkdtempSync(join(tmpdir(), "louvorja-purge-"));
+
+    const result = await jsonCache.purgeOnAppUpdate("2.0.0-beta.17");
+
+    expect(result).toEqual({ purged: false, removed: 0 });
+    expect(existsSync(join(cacheRoot, "json_db", ".app-version"))).toBe(true);
+  });
+});

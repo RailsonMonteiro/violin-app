@@ -43,6 +43,19 @@ export const API_TOKEN: string = import.meta.env.VITE_API_TOKEN || "";
 export const API_URL_FALLBACK: string = import.meta.env.VITE_URL_API_FALLBACK || "";
 export const API_URL_DB_FALLBACK: string = `${API_URL_FALLBACK}${PATH_JSON_DB}`;
 
+/**
+ * Endereço público dos arquivos de mídia (áudio, capas, imagens). O catálogo
+ * já entrega URLs completas apontando para ele; esta constante só serve para
+ * reconhecer o que foi guardado com o endereço antigo (`<API>/file/...`).
+ */
+export const MEDIA_URL: string = import.meta.env.VITE_URL_MEDIA || "https://files.louvorja.com.br";
+
+/** Prefixos pelos quais a mídia já foi servida pela API: o principal e o de reserva. */
+export const LEGACY_MEDIA_PREFIXES: string[] = [
+  API_URL_FILES,
+  `${import.meta.env.VITE_URL_API_FALLBACK || ""}${PATH_FILES}`,
+].filter((prefix) => /^https?:\/\//i.test(prefix));
+
 /** Token da API de fallback. */
 export const API_URL_FALLBACK_TOKEN: string =
   import.meta.env.VITE_URL_API_FALLBACK_TOKEN || API_TOKEN;

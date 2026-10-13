@@ -24,6 +24,8 @@ import {
 
 import { BUNDLE_VALIDATION_REVISION, type BundleKind } from "@/types/Bundle";
 
+import packageJson from "@root/package.json";
+
 const BUNDLE_MARKER_KEY = "__bundle_marker__";
 
 interface BundleMarker {
@@ -34,6 +36,8 @@ interface BundleMarker {
   version_number: number;
   /** Epoch da exportação da origem; muda mesmo quando o schema não muda. */
   source_version?: number;
+  /** Versão do app que instalou o catálogo: outra versão pede catálogo renovado. */
+  app_version?: string;
   installed_at: string;
 }
 
@@ -259,6 +263,7 @@ export default {
           validation_revision: BUNDLE_VALIDATION_REVISION,
           version_number: markerVersion,
           ...(sourceVersion == null ? {} : { source_version: sourceVersion }),
+          app_version: packageJson.version,
           installed_at: new Date().toISOString(),
         } satisfies BundleMarker,
         ts: Date.now(),
@@ -343,6 +348,23 @@ export default {
         (row.data.kind === "full" ||
           (row.data.kind === "catalog" && (kind === "catalog" || row.data.includes_bible === true)))
       );
+    } catch {
+      return false;
+    }
+  },
+
+  /**
+   * True quando há catálogo instalado, mas por outra versão do app. Cada versão
+   * renova o catálogo: o servidor pode ter mudado o que entrega (endereços de
+   * mídia, campos), e o que ficou guardado ainda reflete a versão anterior.
+   * Sem catálogo válido devolve false: quem instala é o fluxo normal.
+   */
+  async catalogNeedsRefreshForApp(): Promise<boolean> {
+    try {
+      const row = await $idb.get<{ data?: BundleMarker }>(DB_TABLE.CACHE, BUNDLE_MARKER_KEY);
+      const marker = row?.data;
+      if (!marker || marker.validation_revision !== BUNDLE_VALIDATION_REVISION) return false;
+      return marker.app_version !== packageJson.version;
     } catch {
       return false;
     }
