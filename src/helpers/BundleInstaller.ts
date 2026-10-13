@@ -15,6 +15,7 @@ import { extractBundleEntries } from "@/helpers/BundleExtraction";
 import {
   API_URL,
   API_TOKEN,
+  apiTokenHeaders,
   API_URL_FALLBACK,
   API_URL_FALLBACK_TOKEN,
   API_URL_DB,
@@ -88,7 +89,7 @@ export default {
     abortCheck(signal);
     const fetchFrom = (api: string, token: string) =>
       fetchWithTimeout(bundleUrl(api, kind), {
-        headers: { "Api-Token": token },
+        headers: apiTokenHeaders(token, bundleUrl(api, kind)),
         signal,
         cache: "no-store",
         timeout: NET_TIMEOUT.MEDIA,
@@ -405,7 +406,7 @@ export default {
       source: string
     ): Promise<RemoteBundleConfig | null> => {
       const res = await fetchWithTimeout(url, {
-        headers: { "Api-Token": token },
+        headers: apiTokenHeaders(token, url),
         cache: "no-store",
         source,
       });

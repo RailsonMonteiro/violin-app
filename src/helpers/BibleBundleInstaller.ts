@@ -14,7 +14,13 @@ import BundleInstaller from "@/helpers/BundleInstaller";
 import { BUNDLE_VALIDATION_REVISION } from "@/types/Bundle";
 import type { BundleProgress } from "@/types/Database";
 import { fetchWithTimeout, NET_TIMEOUT } from "@/helpers/Http";
-import { API_TOKEN, API_URL, API_URL_FALLBACK, API_URL_FALLBACK_TOKEN } from "@/config/Api";
+import {
+  API_TOKEN,
+  API_URL,
+  API_URL_FALLBACK,
+  API_URL_FALLBACK_TOKEN,
+  apiTokenHeaders,
+} from "@/config/Api";
 import { DB_TABLE } from "@/constants/DbTables";
 import { classifyLocalEnvironmentError } from "@/helpers/LocalEnvironmentErrors";
 import { extractBundleEntries } from "@/helpers/BundleExtraction";
@@ -67,7 +73,7 @@ async function fetchBuffer(
   signal?: AbortSignal
 ): Promise<ArrayBuffer> {
   const response = await fetchWithTimeout(url, {
-    headers: { "Api-Token": token },
+    headers: apiTokenHeaders(token, url),
     signal,
     cache: "no-store",
     timeout: NET_TIMEOUT.MEDIA,

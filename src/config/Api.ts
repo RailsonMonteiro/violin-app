@@ -56,6 +56,24 @@ export function apiOrigin(): string {
   return API_URL;
 }
 
+const OFFICIAL_API_HOST = /(^|\.)louvorja\.(workers\.dev|com\.br)$/i;
+
+/**
+ * Cabeçalho `Api-Token` para uma URL. A API oficial é pública e ignora o token,
+ * e esse cabeçalho não é "simples" para o CORS: cada URL diferente do catálogo
+ * ganhava um pré-voo `OPTIONS`, que também é uma invocação do Worker na cota
+ * diária. Só se manda para servidores próprios que ainda exijam o token.
+ */
+export function apiTokenHeaders(token: string, url: string): Record<string, string> {
+  if (!token) return {};
+  try {
+    if (OFFICIAL_API_HOST.test(new URL(url).hostname)) return {};
+  } catch {
+    return {};
+  }
+  return { "Api-Token": token };
+}
+
 /**
  * Token apropriado para uma URL (fallback ou principal).
  */

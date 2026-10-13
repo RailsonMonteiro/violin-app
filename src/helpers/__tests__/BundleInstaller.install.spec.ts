@@ -34,6 +34,8 @@ vi.mock("@/config/Api", () => ({
   API_URL_FALLBACK_TOKEN: "",
   API_URL_DB: "https://api.test/json_db",
   API_URL_DB_FALLBACK: "",
+  apiTokenHeaders: (token: string, url: string) =>
+    token && !/louvorja\.(workers\.dev|com\.br)/.test(url) ? { "Api-Token": token } : {},
 }));
 
 // O contrato do instalador é testado sem Worker real; a ponte Worker tem sua

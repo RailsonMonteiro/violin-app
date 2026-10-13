@@ -289,6 +289,7 @@ import packageJson from "@root/package.json";
 import type { DbConfig } from "@/types/Database";
 import {
   API_TOKEN,
+  apiTokenHeaders,
   API_URL_FALLBACK,
   API_URL_FALLBACK_TOKEN,
   API_URL_DB,
@@ -544,12 +545,12 @@ async function openPackageFile(): Promise<void> {
 async function _fetchDbConfig(): Promise<Response> {
   try {
     const res = await fetchWithTimeout(`${API_URL_DB}/config`, {
-      headers: { "Api-Token": API_TOKEN },
+      headers: apiTokenHeaders(API_TOKEN, `${API_URL_DB}/config`),
       source: "db-config",
     });
     if (!res.ok && API_URL_FALLBACK) {
       return await fetchWithTimeout(`${API_URL_DB_FALLBACK}/config`, {
-        headers: { "Api-Token": API_URL_FALLBACK_TOKEN },
+        headers: apiTokenHeaders(API_URL_FALLBACK_TOKEN, `${API_URL_DB_FALLBACK}/config`),
         source: "db-config-fallback",
       });
     }
@@ -560,7 +561,7 @@ async function _fetchDbConfig(): Promise<Response> {
     // chegava a tentar o legado, mesmo com ele configurado.
     if (!API_URL_FALLBACK) throw e;
     return await fetchWithTimeout(`${API_URL_DB_FALLBACK}/config`, {
-      headers: { "Api-Token": API_URL_FALLBACK_TOKEN },
+      headers: apiTokenHeaders(API_URL_FALLBACK_TOKEN, `${API_URL_DB_FALLBACK}/config`),
       source: "db-config-fallback",
     });
   }

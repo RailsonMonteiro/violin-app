@@ -36,6 +36,7 @@ vi.mock("@/config/Api", () => ({
   API_URL_DB: "https://api.test/json_db",
   API_URL_FILES: "https://api.test/file",
   getTokenForUrl: () => "",
+  apiTokenHeaders: () => ({}),
 }));
 vi.mock("@/helpers/Telemetry", () => ({
   default: {
