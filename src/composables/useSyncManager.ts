@@ -80,12 +80,22 @@ let ftpInflight: Promise<boolean> | null = null;
 /** Por quanto tempo uma conexão confirmada é considerada válida. */
 const FTP_OK_TTL_MS = 60_000;
 
+/** Quantos arquivos de uma coleção já estão no disco, quando faltam outros. */
+export interface PartialProgress {
+  have: number;
+  total: number;
+}
+
 interface ScanCacheResult {
   cachedAlbums: Set<number>;
   /** Subconjunto de `cachedAlbums` que só está completo graças ao acervo clássico. */
   classicAlbums: Set<number>;
   hymnalCached: boolean;
   hymnal1996Cached: boolean;
+  /** Álbuns com parte dos arquivos no disco (interrompidos ou removidos à mão). */
+  partialAlbums?: Map<number, PartialProgress>;
+  partialHymnal?: PartialProgress | null;
+  partialHymnal1996?: PartialProgress | null;
 }
 
 export interface CatalogScanResult extends ScanCacheResult {
@@ -358,6 +368,7 @@ export function useSyncManager() {
 
     const cachedAlbums = new Set<number>();
     const classicAlbums = new Set<number>();
+    const partialAlbums = new Map<number, PartialProgress>();
     const ALBUM_BATCH = 3;
 
     for (let i = 0; i < albumIds.length; i += ALBUM_BATCH) {
@@ -367,9 +378,12 @@ export function useSyncManager() {
           try {
             const files = await collectAlbumFileList(id, { localOnly: true });
             if (files.length === 0) return;
-            const origem = await originOfFileList(files);
-            if (origem) cachedAlbums.add(id);
-            if (origem === "classic") classicAlbums.add(id);
+            const state = await localStateOfFileList(files);
+            if (state.origin) cachedAlbums.add(id);
+            if (state.origin === "classic") classicAlbums.add(id);
+            if (!state.origin && state.have > 0) {
+              partialAlbums.set(id, { have: state.have, total: state.total });
+            }
           } catch (e) {
             console.warn(`[useSyncManager] scan album ${id}:`, e);
           } finally {
@@ -380,10 +394,15 @@ export function useSyncManager() {
     }
 
     let hymnalCached = false;
+    let partialHymnal: PartialProgress | null = null;
     if (hymnalIds.length) {
       try {
         const hymFiles = await collectHymnalFileList(hymnalIds, { localOnly: true });
-        hymnalCached = hymFiles.length > 0 && (await isFileListComplete(hymFiles));
+        const state = await localStateOfFileList(hymFiles);
+        hymnalCached = hymFiles.length > 0 && !!state.origin;
+        if (!hymnalCached && state.have > 0) {
+          partialHymnal = { have: state.have, total: state.total };
+        }
       } catch (e) {
         console.warn("[useSyncManager] scan hymnal:", e);
       }
@@ -391,10 +410,15 @@ export function useSyncManager() {
     }
 
     let hymnal1996Cached = false;
+    let partialHymnal1996: PartialProgress | null = null;
     if (hymnal1996Ids.length) {
       try {
         const hymFiles = await collectHymnalFileList(hymnal1996Ids, { localOnly: true });
-        hymnal1996Cached = hymFiles.length > 0 && (await isFileListComplete(hymFiles));
+        const state = await localStateOfFileList(hymFiles);
+        hymnal1996Cached = hymFiles.length > 0 && !!state.origin;
+        if (!hymnal1996Cached && state.have > 0) {
+          partialHymnal1996 = { have: state.have, total: state.total };
+        }
       } catch (e) {
         console.warn("[useSyncManager] scan hymnal 1996:", e);
       }
@@ -407,6 +431,9 @@ export function useSyncManager() {
       classicAlbums,
       hymnalCached,
       hymnal1996Cached,
+      partialAlbums,
+      partialHymnal,
+      partialHymnal1996,
     };
     scanCacheEntry = { lang, at: Date.now(), result: cloneScanResult(result) };
     return result;
@@ -419,6 +446,9 @@ export function useSyncManager() {
       ...r,
       cachedAlbums: new Set(r.cachedAlbums),
       classicAlbums: new Set(r.classicAlbums),
+      partialAlbums: new Map(r.partialAlbums ?? []),
+      partialHymnal: r.partialHymnal ? { ...r.partialHymnal } : null,
+      partialHymnal1996: r.partialHymnal1996 ? { ...r.partialHymnal1996 } : null,
     };
   }
 
@@ -910,6 +940,23 @@ export function useSyncManager() {
    * mesmo jeito: o operador consegue tocar tudo, e propor download seria pedir
    * que ele baixe de novo o que já tem no disco.
    */
+  /** Completa ou quantos arquivos faltam: a mesma leitura do disco, sem custo extra. */
+  async function localStateOfFileList(
+    files: FileEntry[]
+  ): Promise<{ origin: FileOrigin; have: number; total: number }> {
+    if (!files.length || !Platform.storage?.checkLocal) return { origin: false, have: 0, total: 0 };
+    const remotes = files.map((f) => f.remote);
+    const local = (await Platform.storage.checkLocal(remotes)) as LocalCheckResult;
+    const have = remotes.filter((r) => local[r] === "own" || local[r] === "classic").length;
+    if (have === remotes.length) {
+      return {
+        origin: remotes.some((r) => local[r] === "classic") ? "classic" : "own",
+        have,
+        total: remotes.length,
+      };
+    }
+    return { origin: false, have, total: remotes.length };
+  }
   async function isFileListComplete(files: FileEntry[]): Promise<boolean> {
     if (!files.length || !Platform.storage?.checkLocal) return false;
     const remotes = files.map((f) => f.remote);
@@ -949,6 +996,24 @@ export function useSyncManager() {
       Platform.download?.cancel();
     });
 
+    // Os assinantes desta rodada. Ao terminar (ou nem começar, quando não há nada
+    // a baixar) eles saem, em vez de se acumularem a cada "Continuar" ou "Baixar".
+    const mine: CleanupFn[] = [];
+    const track = (unsubscribe: CleanupFn): void => {
+      mine.push(unsubscribe);
+      _downloadCleanup.push(unsubscribe);
+    };
+    const releaseListeners = (): void => {
+      for (const unsubscribe of mine.splice(0)) {
+        try {
+          unsubscribe();
+        } catch {
+          /* noop */
+        }
+      }
+      _downloadCleanup = _downloadCleanup.filter((fn) => !mine.includes(fn));
+    };
+
     const cleanupFns: CleanupFn[] = [];
 
     cleanupFns.push(
@@ -977,10 +1042,10 @@ export function useSyncManager() {
       })
     );
 
-    _downloadCleanup.push(...cleanupFns);
+    cleanupFns.forEach(track);
 
     // Escuta conclusão da fila
-    _downloadCleanup.push(
+    track(
       Platform.download.onQueueDone((result: { downloaded?: number; failed?: number; error?: string }) => {
         downloading.value = false;
         const reportedFailed = typeof result?.failed === "number" &&
@@ -1004,12 +1069,14 @@ export function useSyncManager() {
         } else {
           bgTasks.completeTask("sync-collections");
         }
+        releaseListeners();
       })
     );
-    _downloadCleanup.push(
+    track(
       Platform.download.onQueueCancelled(() => {
         downloading.value = false;
         bgTasks.updateTask("sync-collections", { status: "cancelled" });
+        releaseListeners();
       })
     );
 
@@ -1018,8 +1085,13 @@ export function useSyncManager() {
         | { queued?: number; message?: string; downloaded?: number; failed?: number }
         | undefined;
       if (result?.queued === 0) {
+        // Nada a baixar: não houve fila, então ninguém vai emitir "terminou". Sem
+        // fechar a tarefa aqui, a barra ficava em "0 de 0" com o botão Cancelar.
         downloading.value = false;
+        downloadProgress.value = { done: 0, failed: 0, total: 0, currentFile: "" };
         downloadCompletedMsg.value = result.message || "Já está atualizado.";
+        bgTasks.dismissTask("sync-collections");
+        releaseListeners();
       } else if (result?.queued != null) {
         downloadProgress.value = { ...downloadProgress.value, total: result.queued };
         bgTasks.updateTask("sync-collections", { _total: result.queued });
@@ -1030,6 +1102,8 @@ export function useSyncManager() {
     } catch (e) {
       downloading.value = false;
       downloadCompletedMsg.value = (e as Error).message;
+      bgTasks.dismissTask("sync-collections");
+      releaseListeners();
     }
   }
 

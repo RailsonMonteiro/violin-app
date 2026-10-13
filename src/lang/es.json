@@ -610,6 +610,12 @@
       "from_classic": "acervo de la versión clásica",
       "downloaded": "descargado",
       "will_remove": "se eliminará",
+      "partial": "{percent}% descargado",
+      "partial_files": "{have} de {total} archivos",
+      "partial_continue": "Continuar",
+      "partial_discard": "Borrar",
+      "partial_discard_confirm": "¿Borrar los {n} archivos ya descargados de \"{name}\"?",
+      "partial_discarded": "\"{name}\": archivos borrados.",
       "remove": "Eliminar {n} del dispositivo",
       "remove_confirm": "¿Eliminar {n} elemento(s) descargado(s) del dispositivo? Puedes descargarlos de nuevo después."
     },

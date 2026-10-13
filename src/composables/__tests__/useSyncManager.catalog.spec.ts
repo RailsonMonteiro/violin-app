@@ -197,6 +197,49 @@ describe("Verificação Inicial leve", () => {
     expect(h.dbGetLocal).toHaveBeenCalledWith("music_2", { remember: false });
     expect(h.dbGet).not.toHaveBeenCalled();
   });
+
+  it("álbum com parte dos arquivos no disco aparece como parcial, com a contagem", async () => {
+    h.hasBundleMarker.mockResolvedValue(true);
+    h.platform.isDesktop = false;
+    let first = true;
+    h.platform.storage = {
+      // Só o primeiro arquivo pedido existe; os demais faltam.
+      checkLocal: vi.fn(async (paths: string[]) =>
+        Object.fromEntries(
+          paths.map((path, i) => {
+            const present = first && i === 0;
+            return [path, present ? "own" : false];
+          })
+        )
+      ),
+    };
+    const sync = await mountSync();
+
+    const result = await sync.scanCache("pt", CATALOG.pt_categories as never, []);
+    first = false;
+
+    expect(result.cachedAlbums).toEqual(new Set());
+    const partial = result.partialAlbums?.get(7);
+    expect(partial).toBeDefined();
+    expect(partial!.have).toBe(1);
+    expect(partial!.total).toBeGreaterThan(1);
+  });
+
+  it("álbum sem nenhum arquivo no disco não é parcial", async () => {
+    h.hasBundleMarker.mockResolvedValue(true);
+    h.platform.isDesktop = false;
+    h.platform.storage = {
+      checkLocal: vi.fn(async (paths: string[]) =>
+        Object.fromEntries(paths.map((path) => [path, false]))
+      ),
+    };
+    const sync = await mountSync();
+
+    const result = await sync.scanCache("pt", CATALOG.pt_categories as never, []);
+
+    expect(result.cachedAlbums).toEqual(new Set());
+    expect(result.partialAlbums?.size ?? 0).toBe(0);
+  });
 });
 
 describe("bundle da Bíblia e bundle geral em andamento", () => {
