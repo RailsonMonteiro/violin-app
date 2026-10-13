@@ -19,6 +19,7 @@
         />
         <span v-if="sync.bundlePercent.value > 0" class="sc-scanning__count">
           {{ sync.bundlePercent.value }}%
+          <template v-if="bundleEta">· {{ bundleEta }}</template>
         </span>
       </template>
       <template v-else>
@@ -441,6 +442,8 @@ import {
   LjSpinner,
 } from "@/components/ui";
 import { formatBibleDownloadDetail } from "@/helpers/BackgroundTaskDetail";
+import { formatEta } from "@/helpers/Eta";
+import { useBackgroundTasks } from "@/composables/useBackgroundTasks";
 
 interface Album {
   id_album: number;
@@ -496,6 +499,11 @@ const scanData = ref<ScanData>({
 });
 
 const sync = useSyncManager();
+const bgTasks = useBackgroundTasks();
+const bundleEta = computed(() => {
+  const seconds = bgTasks.tasks.value.find((task) => task.id === "db-bundle")?.etaSeconds;
+  return seconds == null ? "" : t("shell.background_tasks.eta", { time: formatEta(seconds) });
+});
 
 const canDownload = computed(() => sync.ftpOk.value && !sync.ftpChecking.value);
 

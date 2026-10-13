@@ -79,6 +79,7 @@
                   :indeterminate="bundleEmDownload.progress == null"
                   :height="6"
                 />
+                <span v-if="bundleEta" class="opt-bundle-baixando__eta">{{ bundleEta }}</span>
               </div>
             </div>
 
@@ -793,6 +794,7 @@ import {
   formatBackgroundTaskDetail,
   formatBibleDownloadDetail,
 } from "@/helpers/BackgroundTaskDetail";
+import { formatEta } from "@/helpers/Eta";
 import ProgressBar from "@/components/ProgressBar.vue";
 import $snackbar from "@/helpers/Snackbar";
 import Libras from "@/helpers/Libras";
@@ -845,6 +847,10 @@ function findTask(id: string) {
  * buscando". O id é o mesmo que `useSyncManager` registra ao instalar o bundle.
  */
 const bundleEmDownload = computed(() => findTask("db-bundle"));
+const bundleEta = computed(() => {
+  const seconds = bundleEmDownload.value?.etaSeconds;
+  return seconds == null ? "" : t("shell.background_tasks.eta", { time: formatEta(seconds) });
+});
 
 /* ---- Estado ---- */
 
@@ -1843,6 +1849,11 @@ onBeforeUnmount(() => {
   background: var(--lj-body-bg);
   color: var(--lj-text-muted);
   font-size: var(--lj-text-base);
+}
+
+.opt-bundle-baixando__eta {
+  color: var(--lj-text-subtle);
+  font-size: var(--lj-text-xs);
 }
 
 .opt-bundle-baixando__texto {

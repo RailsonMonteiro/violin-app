@@ -1275,6 +1275,7 @@
     "not_implemented": "No implementado",
     "appmenu_content_placeholder": "Seleccione una opción del menú para configurar.",
     "background_tasks": {
+      "eta": "{time} restantes",
       "cancel": "Cancelar descarga",
       "dismiss": "Descartar",
       "title": "Procesos en segundo plano",
