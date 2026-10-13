@@ -1,9 +1,9 @@
 /**
  * displayRoles.js — Papéis de monitor.
  *
- * Em vez de cada módulo guardar o seu próprio monitor (o que produzia dezenas
- * de preferências capazes de divergir entre si), o usuário atribui monitores a
- * três PAPÉIS e cada módulo aponta para um deles.
+ * O usuário atribui monitores a três PAPÉIS e cada módulo herda um deles.
+ * Uma escolha no menu de projeção pode substituir o monitor só daquele módulo,
+ * sem reatribuir o papel compartilhado (ver monitorConfig.js).
  *
  * A vantagem prática: quando um monitor some, o papel fica órfão e a janela
  * simplesmente não abre — em vez de invadir a tela do operador.
