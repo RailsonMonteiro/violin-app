@@ -101,7 +101,12 @@ const etaText = computed(() => {
 .pgb {
   display: flex;
   flex-direction: column;
+  /* Quem usa a barra costuma passar `opt-row--col`, que alinha os filhos ao
+     início e os encolhe ao conteúdo: o botão acabava colado ao nome do arquivo
+     e andava junto com ele. Aqui cada linha ocupa a largura toda. */
+  align-items: stretch;
   gap: var(--lj-space-3);
+  width: 100%;
 }
 
 /* Percentual à esquerda, tempo restante à direita: uma linha só, sem pular. */
