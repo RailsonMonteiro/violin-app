@@ -16,7 +16,11 @@ const FAIL_RATE = 0.25;
 const REPROBE_AFTER = 5;
 
 /**
- * @param {{ min?: number, max?: number, start?: number, windowMs?: number, now?: () => number }} [options]
+ * `ramp: "geometric"` sobe mais depressa enquanto a vazão melhora (dobra até 8
+ * downloads e depois cresce 25% por janela), para que uma linha rápida chegue ao
+ * teto em segundos e não em minutos. O padrão, "linear", sobe um por janela.
+ *
+ * @param {{ min?: number, max?: number, start?: number, windowMs?: number, now?: () => number, ramp?: "linear" | "geometric" }} [options]
  */
 export function createAdaptiveConcurrency({
   min = 2,
@@ -24,6 +28,7 @@ export function createAdaptiveConcurrency({
   start = 4,
   windowMs = WINDOW_MS,
   now = Date.now,
+  ramp = "linear",
 } = {}) {
   const lo = Math.max(1, Math.floor(min));
   const hi = Math.max(lo, Math.floor(max));
@@ -36,6 +41,12 @@ export function createAdaptiveConcurrency({
   let prevRate = null;
   let prevLimit = null;
   let holdWindows = 0;
+
+  /** Quanto subir quando a vazão melhorou. */
+  function stepUp() {
+    if (ramp !== "geometric") return 1;
+    return limit < 8 ? limit : Math.max(2, Math.ceil(limit * 0.25));
+  }
 
   function resetWindow() {
     windowStart = null;
@@ -60,14 +71,14 @@ export function createAdaptiveConcurrency({
     if (prevRate === null) {
       prevRate = rate;
       prevLimit = limit;
-      if (limit < hi) limit += 1;
+      if (limit < hi) limit = Math.min(hi, limit + stepUp());
       return;
     }
     if (limit > prevLimit) {
       if (rate >= prevRate * GAIN) {
         prevRate = rate;
         prevLimit = limit;
-        if (limit < hi) limit += 1;
+        if (limit < hi) limit = Math.min(hi, limit + stepUp());
       } else {
         limit = prevLimit;
         holdWindows = 0;

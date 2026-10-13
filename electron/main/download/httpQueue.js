@@ -54,7 +54,10 @@ class HttpQueue extends EventEmitter {
     this.fixedConcurrency = Number.isFinite(concurrency)
       ? Math.max(1, Math.min(16, concurrency))
       : null;
-    this.maxConcurrency = Math.max(4, Math.min(12, os.cpus().length || 4));
+    // Teto do controlador adaptativo. Ele só sobe enquanto a vazão melhora, então
+    // uma linha lenta não chega nele; uma linha rápida precisa de muitos fluxos,
+    // porque cada arquivo paga a latência do primeiro byte (≈0,4 s no áudio).
+    this.maxConcurrency = Math.max(6, Math.min(24, (os.cpus().length || 2) * 3));
     this.queue = [];
     this.running = false;
     this.cancelled = false;
@@ -489,7 +492,12 @@ class HttpQueue extends EventEmitter {
     let adaptive = null;
     if (this.fixedConcurrency === null) {
       const { createAdaptiveConcurrency } = await loadAdaptiveConcurrency();
-      adaptive = createAdaptiveConcurrency({ min: 2, start: 4, max: this.maxConcurrency });
+      adaptive = createAdaptiveConcurrency({
+        min: 2,
+        start: 4,
+        max: this.maxConcurrency,
+        ramp: "geometric",
+      });
     }
     const slots = this.fixedConcurrency ?? this.maxConcurrency;
 

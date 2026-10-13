@@ -56,6 +56,29 @@ describe("createAdaptiveConcurrency", () => {
     expect(ctl.limit()).toBe(3);
   });
 
+  it("rampa geométrica dobra até 8 e depois cresce em fatias, parando no máximo", () => {
+    const { clock, ctl } = setup({ max: 24, ramp: "geometric" });
+    // Primeira janela mede a base; cada janela seguinte rende o dobro do arquivo anterior.
+    feed(ctl, clock, { files: 4, bytes: 1000 });
+    expect(ctl.limit()).toBe(8);
+    feed(ctl, clock, { files: 8, bytes: 2000 });
+    expect(ctl.limit()).toBe(10);
+    feed(ctl, clock, { files: 10, bytes: 4000 });
+    expect(ctl.limit()).toBe(13);
+    for (let i = 0; i < 6; i++) {
+      feed(ctl, clock, { files: ctl.limit(), bytes: 10000 * (i + 2) });
+    }
+    expect(ctl.limit()).toBe(24);
+  });
+
+  it("rampa geométrica também volta ao limite bom quando subir não melhora", () => {
+    const { clock, ctl } = setup({ max: 24, ramp: "geometric" });
+    feed(ctl, clock, { files: 4, bytes: 1000 });
+    expect(ctl.limit()).toBe(8);
+    feed(ctl, clock, { files: 8, bytes: 500 });
+    expect(ctl.limit()).toBe(4);
+  });
+
   it("não passa do máximo", () => {
     const { clock, ctl } = setup({ max: 5 });
     for (let i = 0; i < 10; i++) feed(ctl, clock, { files: 6, bytes: 1000 * 2 ** i });
