@@ -114,6 +114,12 @@ export const BROADCAST_TYPE = Object.freeze({
    *  Shell — que desliga o estado que ficaria marcando projeção ligada. */
   PROJECTION_CLOSED: "projection_closed",
 
+  /** Uma janela de projeção acabou de montar — a primeira vez ou depois de um F5.
+   *  Payload: { feature: string }. Emitido por: as views de projeção
+   *  (useProjectionCloseNotice). Recebido por: Shell, que cancela o desligamento
+   *  pendente de uma janela que só recarregou. */
+  PROJECTION_OPENED: "projection_opened",
+
   /** Texto do painel de recados. Emitido por message_board/Index.vue.
    *  Recebido por: (recepção futura). */
   MESSAGE_BOARD: "message_board",
