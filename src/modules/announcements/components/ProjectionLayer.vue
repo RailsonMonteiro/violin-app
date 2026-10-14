@@ -90,7 +90,7 @@ import {
  * O que fazer quando chega o comando "parar". Só a janela própria reage a isso
  * (fechando-se); dentro da janela de fundo quem apaga a camada é o estado.
  */
-const props = defineProps<{ onStop?: () => void }>();
+const props = defineProps<{ onStop?: () => void; holdLastSlideOnClose?: boolean }>();
 
 const slides = ref<AnnouncementSlide[]>([]);
 const index = ref(0);
@@ -197,11 +197,15 @@ function applyState(payload: unknown): void {
   currentPacket = packet;
   if (!packet.active) {
     /*
-     * O ÚLTIMO slide fica no ar. Quem apaga a camada é o pai — a janela própria
-     * fechando, a janela de fundo tirando a camada com fade. Limpar aqui
-     * deixaria um retângulo preto no lugar do aviso durante a saída, que é
-     * justamente o que o fade precisa mostrar sumindo.
+     * Dentro da janela de fundo o ÚLTIMO slide fica no ar: quem tira a camada é
+     * o pai, com fade, e limpar aqui deixaria um retângulo preto no lugar do
+     * aviso durante a saída. Na janela própria não há pai para apagar nada —
+     * "parar projeção" manda só este estado, então o slide precisa sair daqui.
      */
+    if (!props.holdLastSlideOnClose) {
+      slides.value = [];
+      clearMediaCache();
+    }
     session.value = packet.announcement_session;
     return;
   }
