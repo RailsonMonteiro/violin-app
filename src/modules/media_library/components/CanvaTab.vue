@@ -202,6 +202,9 @@ import $userdata from "@/helpers/UserData";
 import { KEYS } from "@/constants/UserDataKeys";
 import $media from "@/composables/useMedia";
 import { openSiteWindow } from "@/helpers/ProjectionWindows";
+import Broadcast from "@/helpers/Broadcast";
+import { BROADCAST_TYPE } from "@/helpers/BroadcastTypes";
+import { useBroadcastListener } from "@/composables/useBroadcastListener";
 
 const { t } = useI18n();
 /** Mesma ponte do ModuleContainer: tm("x") → modules.media_library.x */
@@ -715,6 +718,22 @@ onMounted(() => {
    */
   Telemetry.track("canva_tab_opened");
   void carregarStatus();
+});
+
+/*
+ * Ribbon da Biblioteca com a aba Canva montada.
+ *
+ * As ações `media_library_prev/next` da ribbon são escutadas pelo `Index.vue` —
+ * que NÃO está montado nesta aba, então o clique morria sem destino. Aqui a
+ * ação vai para `Media.nextSlide/prevSlide`: o MESMO caminho do teclado, onde
+ * um PDF no telão (o desta aba Canva inclusive) vira PÁGINA em vez de item da
+ * playlist. O `Index.vue` segue com a lógica própria enquanto montado.
+ */
+useBroadcastListener(BROADCAST_TYPE.MODULE_RIBBON_ACTION, (payload) => {
+  const data = payload as { module?: string; action?: string } | null;
+  if (data?.module !== "media_library") return;
+  if (data.action === "prev") $media.prevSlide();
+  if (data.action === "next") $media.nextSlide();
 });
 
 /* Trocar de aba com export na fila não pode deixar o loader para depois. */

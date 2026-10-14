@@ -13,6 +13,7 @@
  */
 
 const auth = require("./auth.js");
+const { comPrazoJson } = require("./http.js");
 
 const BASE = "https://api.canva.com/rest/v1";
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -171,18 +172,19 @@ async function _get(path, params = {}) {
   }
 
   let res;
+  let json;
   try {
-    res = await fetch(url, {
-      headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    ({ res, json } = await comPrazoJson(
+      url,
+      { headers: { Accept: "application/json", Authorization: `Bearer ${token}` } },
+      REQUEST_TIMEOUT_MS
+    ));
   } catch (err) {
     const falha = new Error(`Sem resposta do Canva: ${err?.message || err}`);
     falha.code = "network";
     throw falha;
   }
 
-  const json = await res.json().catch(() => null);
   if (!res.ok) {
     const falha = new Error(json?.message || json?.error || `Erro ${res.status} do Canva.`);
     falha.code = "canva_" + res.status;
@@ -305,33 +307,49 @@ async function getDesign(designId) {
  * @param {"regular"|"pro"} [exportQuality]
  * @returns {Promise<string>} id do job
  */
-async function criarExportPdf(designId, exportQuality = "regular") {
+/**
+ * Cria o job de export num formato qualquer (`pdf`, `jpg`, `png`, `gif`…).
+ *
+ * O corpo é o mesmo do PDF: `design_id` + `format.type`. A `export_quality`
+ * (regular/pro) só vale para o PDF — imagem ignora.
+ *
+ * @param {string} designId
+ * @param {{type: string, exportQuality?: "regular"|"pro"}} format
+ * @returns {Promise<string>} id do job
+ */
+async function criarExport(designId, format) {
   const token = await auth.getAccessToken();
-  const qualidade = exportQuality === "pro" ? "pro" : "regular";
+  const type = str(format?.type, "pdf") || "pdf";
   const body = JSON.stringify({
     design_id: str(designId),
-    format: { type: "pdf", export_quality: qualidade },
+    format:
+      type === "pdf"
+        ? { type, export_quality: format?.exportQuality === "pro" ? "pro" : "regular" }
+        : { type },
   });
 
   let res;
+  let json;
   try {
-    res = await fetch(`${BASE}/exports`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        Authorization: `Bearer ${token}`,
+    ({ res, json } = await comPrazoJson(
+      `${BASE}/exports`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body,
       },
-      body,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+      REQUEST_TIMEOUT_MS
+    ));
   } catch (err) {
     const falha = new Error(`Sem resposta do Canva: ${err?.message || err}`);
     falha.code = "network";
     throw falha;
   }
 
-  const json = await res.json().catch(() => null);
   if (!res.ok) {
     const falha = new Error(json?.message || json?.error || `Erro ${res.status} do Canva.`);
     falha.code = "canva_" + res.status;
@@ -344,6 +362,11 @@ async function criarExportPdf(designId, exportQuality = "regular") {
     throw err;
   }
   return jobId;
+}
+
+/** Job de export em PDF (o formato histórico do desktop). */
+async function criarExportPdf(designId, exportQuality = "regular") {
+  return criarExport(designId, { type: "pdf", exportQuality });
 }
 
 /**
@@ -361,18 +384,19 @@ async function statusExport(jobId) {
   }
 
   let res;
+  let json;
   try {
-    res = await fetch(`${BASE}/exports/${encodeURIComponent(id)}`, {
-      headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    ({ res, json } = await comPrazoJson(
+      `${BASE}/exports/${encodeURIComponent(id)}`,
+      { headers: { Accept: "application/json", Authorization: `Bearer ${token}` } },
+      REQUEST_TIMEOUT_MS
+    ));
   } catch (err) {
     const falha = new Error(`Sem resposta do Canva: ${err?.message || err}`);
     falha.code = "network";
     throw falha;
   }
 
-  const json = await res.json().catch(() => null);
   if (!res.ok) {
     const falha = new Error(json?.message || json?.error || `Erro ${res.status} do Canva.`);
     falha.code = "canva_" + res.status;
@@ -393,6 +417,7 @@ module.exports = {
   getDesignViewUrl,
   getDesign,
   criarExportPdf,
+  criarExport,
   statusExport,
   getProfile,
   normalizeFolderItem,

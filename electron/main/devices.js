@@ -25,7 +25,7 @@ const DEFAULT_CHAT_HISTORY_LIMIT = 100;
 const MIN_CHAT_HISTORY_LIMIT = 1;
 const MAX_CHAT_HISTORY_LIMIT = 500;
 
-/** @type {Array<{id:string,token:string,name:string,platform:string,registeredAt:string,permissions:string[]}>} */
+/** @type {Array<{id:string,token:string,name:string,platform:string,registeredAt:string,permissions:string[],status?:string}>} */
 let _devices = [];
 
 /** @type {{only_authorized_devices:boolean,chat_history_limit:number}|null} */
@@ -173,6 +173,15 @@ function addPending(info) {
     platform: info.platform,
     registeredAt: new Date().toISOString(),
     permissions: [],
+    /*
+     * Pendente é ESTADO, não "lista de permissões vazia". Sem este campo, um
+     * dispositivo que o operador salvou sem nenhuma permissão voltaria para a
+     * tela de aprovação no próximo boot.
+     *
+     * O ramo do fingerprint existente acima NÃO marca pendente de novo: reescanear
+     * o QR de um aparelho já aprovado não pode tirá-lo da lista de autorizados.
+     */
+    status: "pending",
   };
   _devices.push(device);
   return device;

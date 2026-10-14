@@ -78,6 +78,7 @@ function register(app, ctx) {
     isSlideStateResponse,
     isAnnouncementsResponse,
     isLibrasBundleResponse,
+    hasDevicePermission,
   } = ctx;
 
 
@@ -122,8 +123,24 @@ function register(app, ctx) {
   // Body: { action: string, index?: number, presentation_session?: string }
   // ---------------------------------------------------------------
   app.post("/api/song-slides", (req, res) => {
-    const mainWindow = getValidMainWindow();
     const action = req.body && req.body.action;
+    /*
+     * Slides vêm da música (e da bíblia, que usa `bible-*` pelas MESMAS
+     * ações). A regra, ação por ação:
+     *  - `playing-check` é LEITURA do deck (as duas UIs consultam) — passa.
+     *  - `bible-next/prev/close` precisa de `music` OU `bible`.
+     *  - o resto (next/previous/close/go-to-slide) exige `music`.
+     */
+    const bibleActions = ["bible-next", "bible-prev", "bible-close"];
+    const permitido =
+      action === "playing-check" ||
+      hasDevicePermission(req, "music") ||
+      (bibleActions.includes(action) && hasDevicePermission(req, "bible"));
+    if (!permitido) {
+      console.log("[httpServer] song-slides → 403 (device sem a permission)");
+      return res.status(403).json({ error: "Device sem permissão de música" });
+    }
+    const mainWindow = getValidMainWindow();
     if (!mainWindow) {
       return res.status(503).json({ error: "Janela principal não disponível" });
     }
@@ -188,6 +205,10 @@ function register(app, ctx) {
   // Body: { action?: "close"|"next"|"prev", text?, reference?, bookId?, versionId?, chapter?, verse? }
   // ---------------------------------------------------------------
   app.post("/api/bible", (req, res) => {
+    if (!hasDevicePermission(req, "bible")) {
+      console.log("[httpServer] bible → 403 (device sem a permission bible)");
+      return res.status(403).json({ error: "Device sem permissão de bíblia" });
+    }
     const mainWindow = getValidMainWindow();
     if (!mainWindow) {
       return res.status(503).json({ error: "Janela principal não disponível" });
@@ -252,6 +273,10 @@ function register(app, ctx) {
   // tag (legado): 1=audio, 2=instrumental, 3=no_audio
   // ---------------------------------------------------------------
   app.post("/api/open-song", (req, res) => {
+    if (!hasDevicePermission(req, "music")) {
+      console.log("[httpServer] open-song → 403 (device sem a permission music)");
+      return res.status(403).json({ error: "Device sem permissão de música" });
+    }
     const mainWindow = getValidMainWindow();
     const id = parseInt(req.body && req.body.id, 10);
     const id_liturgy = req.body && req.body.id_liturgy;

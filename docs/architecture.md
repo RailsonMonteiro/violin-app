@@ -80,18 +80,18 @@ próximo boot; a tela indica que é preciso reiniciar.
 
 ## 🧠 Stack
 
-| Tecnologia   | Versão   | Uso                 |
-|--------------|----------|---------------------|
-| Vue          | 3.5      | Framework           |
-| Reka UI      | ^2.x     | Base dos primitivos |
-| Pinia        | 3        | Estado global       |
-| Vue Router   | 5.0.6    | Rotas               |
-| Vue I18n     | 11       | Traduções PT/ES     |
-| TypeScript   | 6        | Tipagem             |
-| Vite         | 7        | Build               |
-| Electron     | 41       | Desktop nativo      |
-| idb          | —        | IndexedDB wrapper   |
-| pdfjs-dist   | 6        | Renderização de PDF |
+| Tecnologia | Versão | Uso                 |
+| ---------- | ------ | ------------------- |
+| Vue        | 3.5    | Framework           |
+| Reka UI    | ^2.x   | Base dos primitivos |
+| Pinia      | 3      | Estado global       |
+| Vue Router | 5.0.6  | Rotas               |
+| Vue I18n   | 11     | Traduções PT/ES     |
+| TypeScript | 6      | Tipagem             |
+| Vite       | 7      | Build               |
+| Electron   | 41     | Desktop nativo      |
+| idb        | —      | IndexedDB wrapper   |
+| pdfjs-dist | 6      | Renderização de PDF |
 
 ---
 
@@ -108,7 +108,7 @@ import { API_URL, API_URL_DB, API_URL_FILES, API_TOKEN, API_URL_FALLBACK } from 
 ```
 
 | Export             | Derivação                                       | Exemplo                                    |
-|--------------------|-------------------------------------------------|--------------------------------------------|
+| ------------------ | ----------------------------------------------- | ------------------------------------------ |
 | `API_URL`          | `VITE_URL_API`                                  | `https://api.louvorja.workers.dev`         |
 | `API_URL_DB`       | `API_URL + VITE_PATH_JSON_DB`                   | `https://api.louvorja.workers.dev/json_db` |
 | `API_URL_FILES`    | `API_URL + VITE_PATH_FILES`                     | `https://api.louvorja.workers.dev/file`    |
@@ -132,6 +132,7 @@ const cfg = apiConfig.getConfig();
 
 Quando a API principal falha (erro de rede ou HTTP), as chamadas são repetidas
 automaticamente na API de fallback. Implementado em:
+
 - `src/helpers/Database.ts` — fetch com retry
 - `src/helpers/BundleInstaller.ts` — fetchRemoteConfig com retry
 - `src/helpers/BibleBundleInstaller.ts` — bundle só da Bíblia (`/db/bible-bundle`), sob demanda
@@ -157,9 +158,9 @@ Cada módulo em `src/modules/<id>/` segue esta estrutura:
 ### manifest.ts
 
 ```ts
-import { ModuleEnum } from "@/enums/ModuleEnum"
-import { ICONS } from "@/config/Icons"
-import $modules from "@/helpers/Modules"
+import { ModuleEnum } from "@/enums/ModuleEnum";
+import { ICONS } from "@/config/Icons";
+import $modules from "@/helpers/Modules";
 
 const moduleId = ModuleEnum.BIBLE;
 const modulePath = $modules.getPath(moduleId);
@@ -176,7 +177,7 @@ export const module: Module = {
   group: ModuleGroupEnum.BIBLE_GENERAL,
   order: 0,
   dependencies: [],
-}
+};
 ```
 
 ### Menu contextual (RibbonPage)
@@ -209,7 +210,7 @@ export const contextualPages: RibbonPage[] = [
 ### Tipos de botão na ribbon
 
 | Tipo             | Descrição                                       |
-|------------------|-------------------------------------------------|
+| ---------------- | ----------------------------------------------- |
 | `action`         | Botão padrão que dispara `MODULE_RIBBON_ACTION` |
 | `checkbox`       | Checkbox ligado a `optionKey` no UserData       |
 | `switch`         | `LjSwitch`                                      |
@@ -251,14 +252,14 @@ onde a opção é ligada.
 
 Os cinco gatilhos, e por quê cada um existe:
 
-| Gatilho | Cobre |
-|---|---|
-| `watch(modules.media.show)` | vídeo/YouTube (minimizar, abrir) |
+| Gatilho                           | Cobre                                                         |
+| --------------------------------- | ------------------------------------------------------------- |
+| `watch(modules.media.show)`       | vídeo/YouTube (minimizar, abrir)                              |
 | `watch(modules.media.is_playing)` | arquivo de áudio e vídeo direto (`openAudio` escreve o sinal) |
-| `FILE_PROJECTION` | vídeo da Biblioteca e da Liturgia |
-| `ONLINE_VIDEO_PROJECTION` | vídeo on-line |
-| **`SLIDES_DATA`** | **música** |
-| **`SITE_PROJECTION`** | **projeção de Site (liturgia e Canva)** |
+| `FILE_PROJECTION`                 | vídeo da Biblioteca e da Liturgia                             |
+| `ONLINE_VIDEO_PROJECTION`         | vídeo on-line                                                 |
+| **`SLIDES_DATA`**                 | **música**                                                    |
+| **`SITE_PROJECTION`**             | **projeção de Site (liturgia e Canva)**                       |
 
 `SITE_PROJECTION` é o da projeção de URL: `ProjectionWindows.openSiteWindow`
 abre janela externa, não escreve `modules.media.*` nem manda `FILE_PROJECTION` —
@@ -396,7 +397,13 @@ Helper genérico para a tabela `settings`:
 ```ts
 import { getSetting, saveSetting } from "@/helpers/SettingsStorage";
 
-await saveSetting({ id: "main", image: arrayBuffer, mime: "image/png", color: "#000", position: "cover" });
+await saveSetting({
+  id: "main",
+  image: arrayBuffer,
+  mime: "image/png",
+  color: "#000",
+  position: "cover",
+});
 const wp = await getSetting("main");
 ```
 
@@ -413,7 +420,7 @@ formas antigas, então consumidores continuam usando `$database.get("pt_musics")
 sem alteração:
 
 | Chave                                                   | Tabela                                  | Estratégia                     |
-|---------------------------------------------------------|-----------------------------------------|--------------------------------|
+| ------------------------------------------------------- | --------------------------------------- | ------------------------------ |
 | `{locale}_musics` · `_hymnal` · `_hymnal_1996`          | respectiva                              | itens (1 linha/música)         |
 | `music_<id>`                                            | musics                                  | registro individual (`m:<id>`) |
 | `album_<id>`                                            | albums                                  | registro individual            |
@@ -616,50 +623,99 @@ No Windows, os dois `Program Files` e as pastas expostas por
 ## ⌨️ Atalhos de Teclado
 
 | Tipo                  | Implementação                | Quando funciona                  |
-|-----------------------|------------------------------|----------------------------------|
+| --------------------- | ---------------------------- | -------------------------------- |
 | **In-window**         | `src/helpers/Hotkeys.js`     | Apenas com janela do app em foco |
 | **Global (OS-level)** | `electron/main/shortcuts.js` | System-wide                      |
 
 Atalhos in-window registrados em `src/main.js` via `Hotkeys.register()`.
+
+### Cartão da biblioteca: projetar ou enfileirar
+
+O card da grade tem **duas** ações que uma vez eram a mesma coisa:
+
+| Ação               | O que faz                                                                 |
+| ------------------ | ------------------------------------------------------------------------- |
+| **clicar no card** | Projeta o arquivo **avulso** — não entra na playlist                      |
+| **ícone "+"**      | Enfileira sem projetar, com snackbar de confirmação (`added_to_playlist`) |
+
+O clique projeta porque é o que o operador faz na maioria dos casos: mostrar o
+anúncio agora. O `+` é o que monta a sequência para percorrer com as setas, e ele
+precisa existir porque o clique deixou de enfileirar.
+
+As duas ações sePARAM no `@click.stop` do ícone — sem ele o clique subia para o
+card e o item era enfileirado **e** projetado.
+
+Consequência assumida da projeção avulsa: com um item de biblioteca no telão sem
+estar na playlist, **não há lista para as setas percorrerem** (a barra do player
+é da playlist e também não aparece). No PDF as setas continuam virando página —
+`_pdfPageStep` lê o `playback_id` do que está no palco, e a projeção avulsa o
+declara. O corpo de projetar (`projetarItem`) é compartilhado entre a playlist e
+o clique; o que muda é o estado de lista em volta.
+
+### Quem responde às setas
+
+`←`/`→` são registrados **uma única vez**, em `main-shell.js`, e chegam em
+`Media.nextSlide()`/`prevSlide()`. Quem responde depende do que está no telão, e a
+ordem é o contrato:
+
+1. **Lista de módulo** — o dono registrado por `Media.registerNavigationDelegate()`.
+2. **PDF no telão** — `_pdfPageStep` vira a página.
+3. **Deck de música** — `_slides`.
+
+A Biblioteca de Mídia registra o dono em `playIndex()` e devolve em `stop()`, no
+`onBeforeUnmount` e nos dois caminhos em que a projeção não entra. Sem isso a seta
+caía no deck de música — que não conhece a playlist — e a tecla era consumida sem
+efeito: os botões da barra funcionavam (chamam o `next`/`prev` do próprio módulo) e
+o teclado não.
+
+Dois detalhes que sustentam isso:
+
+- **A música sempre tem a palavra.** A Biblioteca projeta com
+  `stopExistingAudio: true`, e `projectFile` zera `IS_PLAYING` nesse caminho — lista
+  e música tocando nunca coexistem. A guarda é autocorreção: se algum módulo
+  esquecer de devolver as setas, a música as retoma quando assume o palco.
+- **Seta e botão obedecem à mesma regra** porque o dono é o próprio
+  `next`/`prev` do módulo, e não uma cópia. No PDF da lista, a seta pagina antes
+  de trocar de item — igual ao botão.
 
 ---
 
 ## 🔌 Helpers vs Composables
 
 | Tipo                 | Descrição                                           |
-|----------------------|-----------------------------------------------------|
+| -------------------- | --------------------------------------------------- |
 | **Helper puro**      | JS/TS sem APIs Vue. Seguro no Electron main process |
 | **Acoplado a Pinia** | Acessa o store. Funciona apenas no renderer         |
 | **Composable**       | Usa APIs Vue, chamado dentro de `setup()`           |
 
 Helpers principais:
 
-| Helper                 | Função                                                                       |
-|------------------------|------------------------------------------------------------------------------|
-| `Path.ts`              | Constrói URLs (`db`, `file`, `local` — `louvorja://`)                        |
-| `Broadcast.ts`         | BroadcastChannel("louvorja") — multi-listener                                |
-| `BroadcastTypes.ts`    | Constantes de broadcast (50+ tipos)                                          |
-| `Projection.ts`        | Abertura unificada de janelas de projeção                                    |
-| `ProjectionWindows.ts` | Abre/fecha janelas por feature (monitor-aware)                               |
-| `IndexedDB.ts`         | CRUD unificado no IndexedDB                                                  |
-| `Database.ts`          | JSONs do banco com cache em camadas (memória → IDB → rede) e stale-if-error  |
-| `BundleInstaller.ts`   | Download/extract/inject de bundle ZIP do banco (14 tabelas de catálogo)      |
+| Helper                    | Função                                                                           |
+| ------------------------- | -------------------------------------------------------------------------------- |
+| `Path.ts`                 | Constrói URLs (`db`, `file`, `local` — `louvorja://`)                            |
+| `Broadcast.ts`            | BroadcastChannel("louvorja") — multi-listener                                    |
+| `BroadcastTypes.ts`       | Constantes de broadcast (50+ tipos)                                              |
+| `Projection.ts`           | Abertura unificada de janelas de projeção                                        |
+| `ProjectionWindows.ts`    | Abre/fecha janelas por feature (monitor-aware)                                   |
+| `IndexedDB.ts`            | CRUD unificado no IndexedDB                                                      |
+| `Database.ts`             | JSONs do banco com cache em camadas (memória → IDB → rede) e stale-if-error      |
+| `BundleInstaller.ts`      | Download/extract/inject de bundle ZIP do banco (14 tabelas de catálogo)          |
 | `BibleBundleInstaller.ts` | Bundle ZIP só dos capítulos bíblicos; marcador local, sem requisição na checagem |
-| `ImageConvert.ts`      | HEIC/HEIF → JPEG (`heic2any`) na importação                                  |
-| `SljaConverter.js`     | Import/export `.slja` do editor legado Delphi (JSZip + INI)                  |
-| `SljaPlayer.ts`        | `openSlja()` — apresenta um `.slja` na projeção do app, sem gravar nada      |
-| `CustomSongPackage.ts` | Música personalizada ↔ arquivos `.slja`, com o par cantado/playback (`-PB`)  |
-| `SettingsStorage.ts`   | CRUD na tabela `settings` do IDB                                             |
-| `FilePicker.ts`        | `pickImage()` e `pickImageData()` — seletor de imagens                       |
-| `UserData.ts`          | Preferências do usuário (Pinia + persistência)                               |
-| `Hotkeys.js`           | Atalhos de teclado in-window                                                 |
-| `Snackbar.ts`          | Snackbar global; aceita `action?: () => void` opcional (executada no clique) |
-| `Platform.js`          | Adapter web/desktop                                                          |
+| `ImageConvert.ts`         | HEIC/HEIF → JPEG (`heic2any`) na importação                                      |
+| `SljaConverter.js`        | Import/export `.slja` do editor legado Delphi (JSZip + INI)                      |
+| `SljaPlayer.ts`           | `openSlja()` — apresenta um `.slja` na projeção do app, sem gravar nada          |
+| `CustomSongPackage.ts`    | Música personalizada ↔ arquivos `.slja`, com o par cantado/playback (`-PB`)      |
+| `SettingsStorage.ts`      | CRUD na tabela `settings` do IDB                                                 |
+| `FilePicker.ts`           | `pickImage()` e `pickImageData()` — seletor de imagens                           |
+| `UserData.ts`             | Preferências do usuário (Pinia + persistência)                                   |
+| `Hotkeys.js`              | Atalhos de teclado in-window                                                     |
+| `Snackbar.ts`             | Snackbar global; aceita `action?: () => void` opcional (executada no clique)     |
+| `Platform.js`             | Adapter web/desktop                                                              |
 
 Composables principais:
 
 | Composable             | Função                                                                                                           |
-|------------------------|------------------------------------------------------------------------------------------------------------------|
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `useMedia`             | Player de áudio/vídeo/youtube — sincronização de slides, crossfade, broadcast                                    |
 | `useBackgroundTasks`   | Singleton — gerencia tarefas de download em segundo plano (progresso, cancel, dismiss)                           |
 | `useSyncManager`       | Downloads de coletâneas (FTP → HttpQueue), bíblia (HTTP sequencial), bundle do banco (ZIP) + scan de integridade |
@@ -678,7 +734,7 @@ Composables principais:
 Canal único `BroadcastChannel("louvorja")`. Duas finalidades:
 
 | Categoria        | Descrição                                        | Escopo                      |
-|------------------|--------------------------------------------------|-----------------------------|
+| ---------------- | ------------------------------------------------ | --------------------------- |
 | **cross-window** | Sincronizam estado entre janelas (Projeção, OBS) | Multi-janela (mesmo origin) |
 | **in-app**       | Hotkeys e eventos HTTP → módulos Vue             | Mesma janela                |
 
@@ -686,29 +742,29 @@ Canal único `BroadcastChannel("louvorja")`. Duas finalidades:
 
 ### Principais tipos cross-window
 
-| Tipo                      | Emissor                 | Receptor                                    |
-|---------------------------|-------------------------|---------------------------------------------|
-| `music_presentation_snapshot` | useSlides            | Projection, Return, OBS, Operator, Remote, Libras |
-| `slide_change`            | slide_editor            | Projection, ProjectionReturn, Obs, Operator |
-| `slides_data`             | useMedia/useSlides      | Operator, RemoteControl                     |
-| `bible_verse`             | BiblePresentationAuthority na Shell | ProjectionBible, Return, OBS Bible, fundo |
-| `media_close`             | useMedia.close()        | Projection, Obs, FileProjection             |
-| `file_projection`         | useMedia                | FileProjection, Return, fundo e retorno     |
-| `background_projection`   | background_projection   | BackgroundProjection e Return               |
-| `wallpaper_update`        | RibbonWallpaper, Opções | BackgroundProjection, FileProjection        |
-| `module_ribbon_action`    | RibbonBar               | Módulo alvo                                 |
-| `userdata:patch`          | UserData.set()          | Todas as janelas                            |
-| `announcements_state`     | AnnouncementsPresentationAuthority | AnnouncementsProjection             |
-| `announcements_control`   | AnnouncementsProjection/operador | Authority na Shell                    |
-| `bible_ribbon_action`     | RibbonBar               | Módulo bíblia                               |
-| `liturgy_ribbon_action`   | RibbonBar               | Módulo liturgia                             |
-| `module_projection_close` | módulos de projeção     | Janela de projeção                          |
-| `ribbon:select_page`      | Módulos                 | RibbonBar                                   |
-| `libras_toggle`           | ShellTools/Opções       | Projeções e OBS (epoch monotônico)          |
-| `libras_translate`        | useLibras               | Projection, Obs                             |
-| `request_libras_state`    | LibrasOverlay           | main.js                                     |
-| `overlay_config_changed`  | Shell (estado canônico); módulo (invalidação de slots) | OverlayRenderer |
-| `request_overlay_state`   | OverlayRenderer         | Shell (visibilidade) e leitura local dos slots |
+| Tipo                          | Emissor                                                | Receptor                                          |
+| ----------------------------- | ------------------------------------------------------ | ------------------------------------------------- |
+| `music_presentation_snapshot` | useSlides                                              | Projection, Return, OBS, Operator, Remote, Libras |
+| `slide_change`                | slide_editor                                           | Projection, ProjectionReturn, Obs, Operator       |
+| `slides_data`                 | useMedia/useSlides                                     | Operator, RemoteControl                           |
+| `bible_verse`                 | BiblePresentationAuthority na Shell                    | ProjectionBible, Return, OBS Bible, fundo         |
+| `media_close`                 | useMedia.close()                                       | Projection, Obs, FileProjection                   |
+| `file_projection`             | useMedia                                               | FileProjection, Return, fundo e retorno           |
+| `background_projection`       | background_projection                                  | BackgroundProjection e Return                     |
+| `wallpaper_update`            | RibbonWallpaper, Opções                                | BackgroundProjection, FileProjection              |
+| `module_ribbon_action`        | RibbonBar                                              | Módulo alvo                                       |
+| `userdata:patch`              | UserData.set()                                         | Todas as janelas                                  |
+| `announcements_state`         | AnnouncementsPresentationAuthority                     | AnnouncementsProjection                           |
+| `announcements_control`       | AnnouncementsProjection/operador                       | Authority na Shell                                |
+| `bible_ribbon_action`         | RibbonBar                                              | Módulo bíblia                                     |
+| `liturgy_ribbon_action`       | RibbonBar                                              | Módulo liturgia                                   |
+| `module_projection_close`     | módulos de projeção                                    | Janela de projeção                                |
+| `ribbon:select_page`          | Módulos                                                | RibbonBar                                         |
+| `libras_toggle`               | ShellTools/Opções                                      | Projeções e OBS (epoch monotônico)                |
+| `libras_translate`            | useLibras                                              | Projection, Obs                                   |
+| `request_libras_state`        | LibrasOverlay                                          | main.js                                           |
+| `overlay_config_changed`      | Shell (estado canônico); módulo (invalidação de slots) | OverlayRenderer                                   |
+| `request_overlay_state`       | OverlayRenderer                                        | Shell (visibilidade) e leitura local dos slots    |
 
 ---
 
@@ -717,12 +773,12 @@ Canal único `BroadcastChannel("louvorja")`. Duas finalidades:
 O auto-update é gerenciado por `electron/main/updater.js` e exposto ao renderer
 via `Platform.updater`. O comportamento varia conforme a plataforma:
 
-| Instalação          | Check                              | Download / Instalação                                                      |
-|---------------------|------------------------------------|----------------------------------------------------------------------------|
+| Instalação          | Check                              | Download / Instalação                                                                                                                       |
+| ------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Windows (NSIS)**  | electron-updater (provider GitHub) | Instalação por usuário em `%LOCALAPPDATA%\Programs`; `.exe` + blockmap (diferencial). Cópias legadas em `Program Files` pedem UAC explícito |
-| **macOS (DMG/zip)** | electron-updater                   | electron-updater — `.zip` (substitui o `.app`)                             |
-| **Linux AppImage**  | electron-updater                   | electron-updater — substitui o AppImage                                    |
-| **Linux deb/rpm**   | electron-updater                   | electron-updater — via `dpkg`/`apt`/`rpm` (exige sudo)                     |
+| **macOS (DMG/zip)** | electron-updater                   | electron-updater — `.zip` (substitui o `.app`)                                                                                              |
+| **Linux AppImage**  | electron-updater                   | electron-updater — substitui o AppImage                                                                                                     |
+| **Linux deb/rpm**   | electron-updater                   | electron-updater — via `dpkg`/`apt`/`rpm` (exige sudo)                                                                                      |
 
 O **fallback para GitHub API** (`checkGithubAndSetState`) é usado apenas quando o
 electron-updater está inativo (ex: dev, app não empacotado) ou falha. O flag
@@ -737,7 +793,7 @@ O `_state` do updater também carrega métricas de download (`bytesPerSecond`,
 Persistidas em `user_data.options` e aplicadas em runtime via `Platform.updater.setOptions()`:
 
 | Opção                               | Chave (`KEYS.OPTIONS`)   | Efeito                                                                                                                                 |
-|-------------------------------------|--------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
+| ----------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
 | Usar versões beta                   | `USE_BETA_UPDATES`       | `autoUpdater.allowPrerelease` (GitHub provider). Default `true` durante preview — **TODO: remover default ao publicar versão estável** |
 | Verificar novas versões ao iniciar  | `CHECK_UPDATES_ON_START` | Check no boot (disparado pelo renderer em `Shell.vue`)                                                                                 |
 | Baixar atualizações automaticamente | `AUTO_DOWNLOAD_UPDATES`  | Baixa em background quando encontra versão nova                                                                                        |
@@ -787,7 +843,7 @@ Windows que ainda carregam o formato legado.
 ### Diálogos e dispensa
 
 | Item                               | Comportamento                                                                                                                                                                |
-|------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `UpdateAvailableDialog`            | Mostra release notes da **versão nova** (via `getReleaseNotes(version)`); download em background com progresso; erro → botão "Baixar manualmente" (abre a release no GitHub) |
 | `ReleaseNotesDialog`               | Changelog da **versão instalada** (novidades do app atual)                                                                                                                   |
 | `SKIP_UPDATE_NOTIFICATION_VERSION` | "Não mostrar novamente" do diálogo de atualização                                                                                                                            |
@@ -809,7 +865,7 @@ Windows que ainda carregam o formato legado.
 ### IPC handlers principais
 
 | Canal                     | Função                                                                       |
-|---------------------------|------------------------------------------------------------------------------|
+| ------------------------- | ---------------------------------------------------------------------------- |
 | `updater:check`           | Check (electron-updater com fallback GitHub API)                             |
 | `updater:download`        | Download (electron-updater ou manual conforme `_checkedViaGithub`)           |
 | `updater:downloadPackage` | Download manual do asset com progresso (fallback)                            |
@@ -839,6 +895,7 @@ fechamento do diálogo de origem. É composto por:
 - **`Shell.vue`** — registra tarefa `app-update` quando o updater entra em `status: "downloading"`.
 
 **Fluxo de dados:**
+
 ```
 StartupCheckDialog / AppMenuSincronizar
   → useSyncManager.startDownloads() / downloadBibleVersions()
@@ -890,6 +947,7 @@ permite desativar álbuns por checkbox. Álbuns desativados são persistidos em
 - O `DataTable` recebe `disabled_albums` como prop e aplica o filtro.
 
 A página de álbuns também tem:
+
 - **Campo de pesquisa** para filtrar álbuns por nome.
 - **Expansion panels** por categoria (painel "Hinário" é o primeiro, com o
   checkbox do Hinário 1996).
@@ -924,22 +982,23 @@ src/modules/musics/
 interface PlaylistSong {
   id_music: number;
   name: string;
-  duration: number;        // segundos
+  duration: number; // segundos
   has_instrumental_music: boolean;
 }
 
 interface Playlist {
-  id: string;              // UUID
+  id: string; // UUID
   name: string;
   songs: PlaylistSong[];
-  createdAt: string;       // ISO date
-  updatedAt: string;       // ISO date
+  createdAt: string; // ISO date
+  updatedAt: string; // ISO date
 }
 ```
 
 ### Persistência
 
 Playlists são salvas em `UserData` via chaves:
+
 - `KEYS.MODULES.MUSICS.PLAYLISTS` — array de `Playlist[]`
 - `KEYS.MODULES.MUSICS.SELECTED_PLAYLIST` — ID da playlist selecionada
 
@@ -955,22 +1014,26 @@ MusicMenuTable → usePlaylists.addSong() → playlist song
 ### Funcionalidades
 
 **PlaylistPanel (painel esquerdo):**
+
 - Criar/renomear/excluir playlists
 - Importar playlist de arquivo `.json`
 - Exportar playlist como `.json`
 - Selecionar playlist (mostra PlaylistSongs)
 
 **PlaylistSongs (painel direito):**
+
 - Lista de músicas com play individual
 - Botão "Reproduzir" para tocar playlist completa
 - Remover músicas da playlist
 
 **Footer.vue (barra de playlist):**
+
 - Nome da playlist + progresso (tocadas/total)
 - Controles prev/next/stop
 - Aparece acima do player principal
 
 **MusicMenuTable (context menu):**
+
 - Submenu "Adicionar à playlist" com todas as playlists
 - Só aparece quando `showPlaylistMenu={true}` (módulo músicas)
 - Marca músicas já existentes na playlist
@@ -996,7 +1059,7 @@ Duas fontes de vídeos YouTube projetáveis, mescladas na liturgia:
   resultados agregados são deduplicados mantendo a primeira ocorrência.
 - **Thumbnails** com cadeia de fallback: `maxresdefault` → `hqdefault` →
   `default_image` da API (`onerror` avança o passo).
-- Botão *play all* no canal/playlist projeta o primeiro vídeo da sequência.
+- Botão _play all_ no canal/playlist projeta o primeiro vídeo da sequência.
 
 ### Módulo `custom_online_videos` (Meus Vídeos)
 
@@ -1284,6 +1347,7 @@ detalhes sustentam o fade dessas camadas:
   `MODULE_PROJECTION_INTENT`: quem consome aquele é a autoridade, que publica o
   **valor** do módulo, e valor não é visibilidade — o utilitário ficaria preso no
   telão, com o botão marcado como ligado.
+
 - **Os avisos entram como mais uma camada** (`.layer-avisos`, `z-index: 3` — a
   janela própria cobria o telão inteiro). O conteúdo deles foi extraído para
   `src/modules/announcements/components/ProjectionLayer.vue`, que é montado
@@ -1345,7 +1409,7 @@ janela da página:
   diferente: `BroadcastChannel` é por origem e `broadcast:relay` exige listener
   no preload.
 - `sendInputEvent` e não `executeJavaScript` com `dispatchEvent(new
-  KeyboardEvent)`: o sintético nasce **com alvo em `window`**, então
+KeyboardEvent)`: o sintético nasce **com alvo em `window`**, então
   escutadores em `document` ou no elemento focado não recebem (eventos só
   sobem, não descem), e nasce com `isTrusted: false` — o Chromium não executa
   ação padrão de evento não confiável, ou seja, a página não rola nem move o
@@ -1390,7 +1454,7 @@ Fotos de iPhone (`.heic/.heif`) não são decodificadas pelo Chromium. O helper
 estático — funciona offline):
 
 | Função                              | Uso                                               |
-|-------------------------------------|---------------------------------------------------|
+| ----------------------------------- | ------------------------------------------------- |
 | `isHeic(name?, mime?)`              | Detecção por extensão ou MIME                     |
 | `heicToJpeg(blob)`                  | Conversão para JPEG quality 0.92                  |
 | `ensureRenderableImage(name, blob)` | Converte se preciso e ajusta extensão para `.jpg` |
@@ -1401,6 +1465,24 @@ Projeção de Fundo, picker de imagens das Sobreposições e imagem da ação fi
 Timer/Timer Worship. A projeção da Biblioteca de Mídia tem ainda **fallback
 preguiçoso**: HEIC já registrado sem conversão é convertido on-demand e
 cacheado por item (`heicProjectionCache`).
+
+**Corpo de `Range` cancelado** — `_responderArquivo` monta o corpo da faixa à mão
+(`fs.createReadStream` → `ReadableStream`). O consumidor cancela o tempo todo: seek
+de vídeo, troca de slide, projeção fechada no meio. Cada cancelamento deixa o
+controller fechado, e o stream do disco continua disparando `data`/`end`/`error`
+depois disso — fechar (ou errar, ou enfileirar) um controller já fechado lança
+`ERR_INVALID_STATE`, e a exceção sai num tick, fora do `try/catch` de quem pediu o
+arquivo: chega na tela como "ReadableStream is already closed" **sem um quadro do
+nosso código no stack**. Por isso o corpo tem uma bandeira (`encerrado`) e cada
+operação acontece no máximo uma vez — em vez de `try/catch` vazio em cada evento,
+que só escondia o local.
+
+**Miniaturas de vídeo são fila, não rajada** — abrir a Biblioteca não dispara um
+`<video>` por arquivo: cada um é um `Range` em `louvorja://local` que o próprio seek
+cancela pela metade, e uma biblioteca grande viraria dezenas de carregamentos e
+decodificadores ao mesmo tempo. `_enfileirarMiniaturas` drena um por vez, para no
+`onBeforeUnmount` e tem prazo por item (`MINIATURA_TIMEOUT_MS`) para um vídeo que
+nunca carrega não travar a fila.
 
 O protocolo `louvorja://local` registra os MIME `.heic/.heif`, e a constante
 compartilhada `IMAGE_EXT` (`src/constants/FileTypes.ts`) inclui
@@ -1421,11 +1503,11 @@ as Coletâneas continua sendo do módulo `custom_collections`.
 
 Quem chama `openSlja()`:
 
-| Origem                                             | Onde                                             |
-|----------------------------------------------------|--------------------------------------------------|
-| Item de liturgia / item agendado com arquivo `.slja` | `useLiturgyExecution.openFile()`               |
-| Liturgia executada pelo controle remoto (HTTP)     | `projectByExt()` em `src/main.js`                |
-| Duplo clique / "Abrir com" no sistema operacional  | `Platform.onOpenFiles()` em `src/main.js`        |
+| Origem                                               | Onde                                      |
+| ---------------------------------------------------- | ----------------------------------------- |
+| Item de liturgia / item agendado com arquivo `.slja` | `useLiturgyExecution.openFile()`          |
+| Liturgia executada pelo controle remoto (HTTP)       | `projectByExt()` em `src/main.js`         |
+| Duplo clique / "Abrir com" no sistema operacional    | `Platform.onOpenFiles()` em `src/main.js` |
 
 **Cantado e playback.** Um `.slja` comporta uma faixa de áudio só. A música
 personalizada guarda as duas na mesma ficha (`audio_token` e `playback_token`,
@@ -1469,7 +1551,7 @@ janela de projeção.
 ### Arquitetura
 
 | Componente                  | Caminho                                       | Função                                             |
-|-----------------------------|-----------------------------------------------|----------------------------------------------------|
+| --------------------------- | --------------------------------------------- | -------------------------------------------------- |
 | `Libras.ts`                 | `src/helpers/Libras.ts`                       | Helper puro — tradução, cache, extração de texto   |
 | `LibrasOverlay.vue`         | `src/views/LibrasOverlay.vue`                 | Overlay de tradução (widget VLibras + texto gloss) |
 | `useLibras.ts`              | `src/modules/libras/composables/useLibras.ts` | Composable do módulo                               |
@@ -1490,7 +1572,7 @@ ShellTools (toggle) → Broadcast.LIBRAS_TOGGLE → Projection
 ### IndexedDB
 
 | Tabela           | Conteúdo                                  |
-|------------------|-------------------------------------------|
+| ---------------- | ----------------------------------------- |
 | `libras_cache`   | Gloss traduzido (texto → gloss)           |
 | `libras_bundles` | Bundles de animação VLibras (~30 KB cada) |
 
@@ -1499,7 +1581,7 @@ ShellTools (toggle) → Broadcast.LIBRAS_TOGGLE → Projection
 Salvas via `$userdata` com chaves `KEYS.MODULES.LIBRAS.*`:
 
 | Chave                   | Default        | Descrição                              |
-|-------------------------|----------------|----------------------------------------|
+| ----------------------- | -------------- | -------------------------------------- |
 | `anchor`                | `bottom-right` | Posição do overlay na tela             |
 | `offset_x` / `offset_y` | 20             | Deslocamento da âncora                 |
 | `width` / `height`      | —              | Dimensões do overlay                   |
@@ -1520,25 +1602,44 @@ vez no objeto `DOMAINS` e compartilhados entre todos os contextos.
 
 **Contextos:**
 
-| Contexto             | Arquivo                          | Método                                  |
-|----------------------|----------------------------------|-----------------------------------------|
-| Prod desktop         | `electron/main/protocol.js`      | `buildCsp("prod-desktop")` via `csp.js` |
-| Dev desktop          | `electron/main.cjs`              | `buildCsp("dev-desktop")` via `csp.js`  |
-| Prod web/PWA         | `vite.config.js`                 | `buildCspMeta()` com `DOMAINS` local    |
+| Contexto     | Arquivo                     | Método                                  |
+| ------------ | --------------------------- | --------------------------------------- |
+| Prod desktop | `electron/main/protocol.js` | `buildCsp("prod-desktop")` via `csp.js` |
+| Dev desktop  | `electron/main.cjs`         | `buildCsp("dev-desktop")` via `csp.js`  |
+| Prod web/PWA | `vite.config.js`            | `buildCspMeta()` com `DOMAINS` local    |
 
 **Domínios base (csp.js / vite.config.js):**
 
 ```js
 DOMAINS = {
-  youtube: ["www.youtube.com", "www.youtube-nocookie.com", "*.youtube.com", "*.ytimg.com", "*.googlevideo.com"],
-  google:  ["*.doubleclick.net", "www.google.com", "*.google.com", "*.googleapis.com", "fonts.gstatic.com", "www.gstatic.com"],
-  vlibras: ["traducao2.vlibras.gov.br", "dicionario2.vlibras.gov.br", "repositorio.vlibras.gov.br", "vlibras.gov.br"],
-  cdn:     ["cdn.jsdelivr.net", "static.cloudflareinsights.com"],
-  fonts:   ["fonts.googleapis.com"],
-}
+  youtube: [
+    "www.youtube.com",
+    "www.youtube-nocookie.com",
+    "*.youtube.com",
+    "*.ytimg.com",
+    "*.googlevideo.com",
+  ],
+  google: [
+    "*.doubleclick.net",
+    "www.google.com",
+    "*.google.com",
+    "*.googleapis.com",
+    "fonts.gstatic.com",
+    "www.gstatic.com",
+  ],
+  vlibras: [
+    "traducao2.vlibras.gov.br",
+    "dicionario2.vlibras.gov.br",
+    "repositorio.vlibras.gov.br",
+    "vlibras.gov.br",
+  ],
+  cdn: ["cdn.jsdelivr.net", "static.cloudflareinsights.com"],
+  fonts: ["fonts.googleapis.com"],
+};
 ```
 
 **Variações por contexto:**
+
 - **Dev desktop**: adiciona `http://localhost:* ws://localhost:*` em todas as diretivas + `unsafe-inline unsafe-eval`
 - **Prod desktop**: adiciona `file: louvorja:` schemes
 - **Prod web/PWA**: sem localhost, sem schemes customizados
@@ -1549,7 +1650,7 @@ via `apiConfig.getConfig()` (runtime) ou `process.env.VITE_URL_API` (build).
 ### Broadcast
 
 | Tipo                   | Payload                | Emissor       | Receptor        |
-|------------------------|------------------------|---------------|-----------------|
+| ---------------------- | ---------------------- | ------------- | --------------- |
 | `libras_toggle`        | `{ enabled: boolean }` | ShellTools    | Projection      |
 | `libras_translate`     | `{ gloss, original }`  | useLibras     | Projection, Obs |
 | `request_libras_state` | —                      | LibrasOverlay | main.js         |
@@ -1568,18 +1669,18 @@ sincronizada entre janelas por UserData, sem alterar o progresso da tela de reto
 
 ### Configurações (Opções → Slides → Formatação de texto)
 
-| Opção           | Chave (`KEYS.OPTIONS.SLIDE`)    | Default   | Descrição                             |
-|-----------------|---------------------------------|-----------|---------------------------------------|
-| Sombra no Texto | `SHADOW_ENABLED`                | `false`   | Ativa/desativa a sombra custom        |
-| Cor Sombra      | `SHADOW_COLOR`                  | `#000000` | Cor da sombra (color picker)          |
-| Desfoque        | `SHADOW_BLUR`                   | 12        | Raio de desfoque (0–30 px)            |
-| Desloc. X       | `SHADOW_OFFSET_X`               | 0         | Deslocamento horizontal (-20 a 20 px) |
-| Desloc. Y       | `SHADOW_OFFSET_Y`               | 2         | Deslocamento vertical (-20 a 20 px)   |
-| Fundo borrado   | `TEXT_BG_BLUR_ENABLED`          | `false`   | Borra somente o fundo atrás do texto  |
-| Intensidade     | `TEXT_BG_BLUR`                  | 12        | Intensidade do blur (0–30 px)         |
-| Borda da caixa  | `TEXT_BORDER_ENABLED`           | `false`   | Ativa a borda da caixa de texto       |
-| Cor da borda    | `TEXT_BORDER_COLOR`             | `#FFFFFF` | Cor da borda                          |
-| Espessura       | `TEXT_BORDER_WIDTH`             | 2         | Espessura da borda (1–10 px)          |
+| Opção           | Chave (`KEYS.OPTIONS.SLIDE`) | Default   | Descrição                             |
+| --------------- | ---------------------------- | --------- | ------------------------------------- |
+| Sombra no Texto | `SHADOW_ENABLED`             | `false`   | Ativa/desativa a sombra custom        |
+| Cor Sombra      | `SHADOW_COLOR`               | `#000000` | Cor da sombra (color picker)          |
+| Desfoque        | `SHADOW_BLUR`                | 12        | Raio de desfoque (0–30 px)            |
+| Desloc. X       | `SHADOW_OFFSET_X`            | 0         | Deslocamento horizontal (-20 a 20 px) |
+| Desloc. Y       | `SHADOW_OFFSET_Y`            | 2         | Deslocamento vertical (-20 a 20 px)   |
+| Fundo borrado   | `TEXT_BG_BLUR_ENABLED`       | `false`   | Borra somente o fundo atrás do texto  |
+| Intensidade     | `TEXT_BG_BLUR`               | 12        | Intensidade do blur (0–30 px)         |
+| Borda da caixa  | `TEXT_BORDER_ENABLED`        | `false`   | Ativa a borda da caixa de texto       |
+| Cor da borda    | `TEXT_BORDER_COLOR`          | `#FFFFFF` | Cor da borda                          |
+| Espessura       | `TEXT_BORDER_WIDTH`          | 2         | Espessura da borda (1–10 px)          |
 
 ### Implementação
 
@@ -1621,7 +1722,7 @@ Projection views             ← fontFamily via resolveFont() + inline style
 ### Arquivos principais
 
 | Arquivo                                      | Função                                                                                            |
-|----------------------------------------------|---------------------------------------------------------------------------------------------------|
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | `src/config/fonts.ts`                        | Config de fontes: `FontOption`, `Fonts`, namespace `FONT`, `resolveFont()`                        |
 | `src/assets/styles/fonts.css`                | Declarações `@font-face` para fontes customizadas                                                 |
 | `src/assets/fonts/`                          | Arquivos de fonte (.ttf, .otf)                                                                    |
@@ -1632,7 +1733,7 @@ Projection views             ← fontFamily via resolveFont() + inline style
 ### Chaves UserData
 
 | Chave                     | Escopo            | Onde é salva                             |
-|---------------------------|-------------------|------------------------------------------|
+| ------------------------- | ----------------- | ---------------------------------------- |
 | `options.font`            | Global (UI)       | Opções → Geral → Fonte da Interface      |
 | `options.projection_font` | Global (Projeção) | Opções → Geral → Fonte de Projeção       |
 | `options.slide.font`      | Slides            | Opções → Slides → Fonte de projeção      |
@@ -1643,7 +1744,7 @@ Projection views             ← fontFamily via resolveFont() + inline style
 ### Opções especiais de family
 
 | Family key                      | Nome                | Resolve para                                         |
-|---------------------------------|---------------------|------------------------------------------------------|
+| ------------------------------- | ------------------- | ---------------------------------------------------- |
 | `"__FONT_DEFAULT_UI__"`         | Padrão da Interface | `options.font` via `--lj-font-shell`                 |
 | `"__FONT_DEFAULT_PROJECTION__"` | Padrão da Projecão  | `options.projection_font` via `--lj-font-projection` |
 | `"__DEFAULT__"`                 | Padrão              | Fallback interno usado nos selects de Geral          |
@@ -1667,13 +1768,13 @@ tooltips.
 
 ### SelectFont.vue — Props
 
-| Prop                    | Tipo             | Default  | Descrição                             |
-|-------------------------|------------------|----------|---------------------------------------|
-| `modelValue`            | `string \| null` | `""`     | Valor salvo (family key)              |
-| `disabled`              | `boolean`        | `false`  | Desabilita o select                   |
-| `showInterfaceDefault`  | `boolean`        | `true`   | Mostra "Padrão da Interface"          |
-| `showProjectionDefault` | `boolean`        | `true`   | Mostra "Padrão da Projecão"           |
-| `defaultFont`           | `string`         | `""`     | CSS font-family para a opção "Padrão" |
+| Prop                    | Tipo             | Default | Descrição                             |
+| ----------------------- | ---------------- | ------- | ------------------------------------- |
+| `modelValue`            | `string \| null` | `""`    | Valor salvo (family key)              |
+| `disabled`              | `boolean`        | `false` | Desabilita o select                   |
+| `showInterfaceDefault`  | `boolean`        | `true`  | Mostra "Padrão da Interface"          |
+| `showProjectionDefault` | `boolean`        | `true`  | Mostra "Padrão da Projecão"           |
+| `defaultFont`           | `string`         | `""`    | CSS font-family para a opção "Padrão" |
 
 ### Como adicionar uma nova fonte
 
@@ -1696,7 +1797,7 @@ tooltips.
 ### Fontes disponíveis
 
 | Nome                 | Family                        | Arquivo                           |
-|----------------------|-------------------------------|-----------------------------------|
+| -------------------- | ----------------------------- | --------------------------------- |
 | Padrão da Interface  | `__FONT_DEFAULT_UI__`         | (herda Geral)                     |
 | Padrão da Projecão   | `__FONT_DEFAULT_PROJECTION__` | (herda Geral)                     |
 | Advent Sans          | `AdventSansLogo`              | AdventSans-Logo.otf               |
@@ -1724,13 +1825,13 @@ tooltips.
 Quando a fonte é alterada nas Opções, broadcasts são enviados para atualizar
 janelas de projeção em tempo real:
 
-| Chave alterada           | Broadcast enviado      | Recebido por                           |
-|--------------------------|------------------------|----------------------------------------|
-| `options.font`           | `SLIDE_FONT_CHANGED`   | useSlideStyle, ModuleProjection        |
-| `options.projection_font` | `SLIDE_FONT_CHANGED`  | useSlideStyle                          |
-| `options.slide.font`     | `SLIDE_FONT_CHANGED`   | useSlideStyle                          |
-| `modules.bible.font`     | `BIBLE_FORMAT_CHANGED` | ProjectionBible, ProjectionBibleReturn |
-| `options.utilities_font` | `SLIDE_FONT_CHANGED`   | ModuleProjection                       |
+| Chave alterada            | Broadcast enviado      | Recebido por                           |
+| ------------------------- | ---------------------- | -------------------------------------- |
+| `options.font`            | `SLIDE_FONT_CHANGED`   | useSlideStyle, ModuleProjection        |
+| `options.projection_font` | `SLIDE_FONT_CHANGED`   | useSlideStyle                          |
+| `options.slide.font`      | `SLIDE_FONT_CHANGED`   | useSlideStyle                          |
+| `modules.bible.font`      | `BIBLE_FORMAT_CHANGED` | ProjectionBible, ProjectionBibleReturn |
+| `options.utilities_font`  | `SLIDE_FONT_CHANGED`   | ModuleProjection                       |
 
 ---
 
@@ -1740,12 +1841,13 @@ Todas as listas de extensões de arquivo usadas no programa estão centralizadas
 em `src/constants/FileTypes.ts`:
 
 | Constante   | Extensões                                       |
-|-------------|-------------------------------------------------|
+| ----------- | ----------------------------------------------- |
 | `IMAGE_EXT` | jpg, jpeg, png, webp, gif, bmp, svg, heic, heif |
 | `AUDIO_EXT` | mp3, wav, ogg, flac, aac, m4a, wma, opus        |
 | `VIDEO_EXT` | mp4, webm, mkv, mov, avi, m4v                   |
 
 **Uso:**
+
 ```ts
 import { IMAGE_EXT, AUDIO_EXT, VIDEO_EXT } from "@/constants/FileTypes";
 
@@ -1755,6 +1857,7 @@ else if (AUDIO_EXT.includes(ext)) kind = "audio";
 ```
 
 **Regras:**
+
 - Nunca defina listas inline — importe de `FileTypes.ts`.
 - Para adicionar nova extensão, edite `FileTypes.ts` e todos os consumidores
   usam automaticamente.
@@ -1823,11 +1926,11 @@ Persistido em `device_settings.json` via `devices.js`.
 `electron/main/httpServer/` ficou em três arquivos (era um `routes.js` de
 ~2.000 linhas):
 
-| Arquivo | Papel |
-|---|---|
-| `routes.js` | **Principal**: infra do servidor (`ping`, `settings/devices`), os validadores/payloads (contratos exportados para os specs) e o motor de renderer (`requestRenderer`/`sendRendererError`/`getValidMainWindow`); o `setupRoutes` orquestra os outros dois. |
+| Arquivo                 | Papel                                                                                                                                                                                                                                                                                                      |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `routes.js`             | **Principal**: infra do servidor (`ping`, `settings/devices`), os validadores/payloads (contratos exportados para os specs) e o motor de renderer (`requestRenderer`/`sendRendererError`/`getValidMainWindow`); o `setupRoutes` orquestra os outros dois.                                                  |
 | `transmissionRoutes.js` | **Transmissão**: as URLs/janelas da tela Opções → Transmissão — relógio (`/clock`), música (`/obs`), bíblia (`/obs/bible`), pipeline de projeção (`open-song` → `song-slides` → `projections/close`), anúncios, sorteio, libras e os dados que os displays carregam (`user-data`, `db`, versões baixadas). |
-| `remoteRoutes.js` | **Controle remoto**: as features do app/web do operador — teclado, liturgia, busca/navegação de músicas, vídeos online, som de fundo, volume e chat. |
+| `remoteRoutes.js`       | **Controle remoto**: as features do app/web do operador — teclado, liturgia, busca/navegação de músicas, vídeos online, som de fundo, volume e chat.                                                                                                                                                       |
 
 As duas famílias recebem motor, validadores e deps por **`ctx`** no
 `register(app, ctx)` — nenhum delas requer `routes.js` (sem require circular)
@@ -1844,39 +1947,40 @@ real e responde pela `RENDERER_RESPONSE_CHANNEL`.
 
 ### Endpoints da API
 
-| Método | Endpoint                          | Body / Query                                  | Descrição                                  |
-| ------ | --------------------------------- | --------------------------------------------- | ------------------------------------------ |
-| GET    | `/api/ping`                       | —                                             | Health check                               |
-| GET    | `/api/clock`                      | —                                             | Hora do servidor                           |
-| POST   | `/api/keyboard`                   | `{ key, modifiers? }`                         | Simula tecla (`KeyboardEvent` sintético)   |
-| POST   | `/api/song-slides`                | `{ action, index? }`                          | Controle de slides (next/prev/close/go-to) |
-| GET    | `/api/song-slides`                | `?action=playing-check`                       | Estado da apresentação de música           |
-| POST   | `/api/bible`                      | `{ action?, text?, reference?, bookId?... }`  | Projeta versículo ou navega bíblia         |
-| POST   | `/api/liturgy-execute`            | `{ id, tag?, day? }`                          | Executa item da liturgia (day = dia exibido) |
-| POST   | `/api/open-song`                  | `{ id, tag?, id_liturgy? }`                   | Abre música para projeção                  |
-| POST   | `/api/projections/close`          | `{}`                                          | Encerra todas as projeções ativas          |
-| POST   | `/api/announcements`              | `{ action, ids? }`                            | Projeta/anuncia (next/prev/stop/project)   |
-| POST   | `/api/settings/devices`           | `{ only_authorized_devices }`                 | Lê/grava flag de modo restrito             |
-| GET    | `/api/music-search`               | `?q=...&lang=pt`                              | Busca músicas (oficial + acervo pessoal)   |
-| GET    | `/api/music-library`              | `action=albums\|songs`, `lang`, `album`       | Álbuns/faixas p/ navegar (hinários pinados + oficiais + coletâneas + "Sem álbum") |
-| GET    | `/api/music-library/image`        | `path=<url_image>`                            | Capa de álbum em `<dados>/files/`          |
-| GET    | `/api/bible-downloaded`           | `?lang=pt`                                    | Versões da bíblia baixadas                |
-| GET    | `/api/liturgy`                    | —                                             | Itens da liturgia atual                    |
-| GET    | `/api/announcements?action=list`  | —                                             | Lista de anúncios                          |
-| GET    | `/api/online-videos`              | `?action=albums\|videos\|search`, `lang`, `q`, `album` | Álbuns/busca dos **dois** acervos de vídeo online (permission `online_videos`) |
-| GET    | `/api/online-videos/image`        | `?kind=video\|category`, `id`               | Miniatura em binário dos Meus Vídeos (permission `online_videos`) |
-| POST   | `/api/online-videos`              | `{ action: play\|close, url?, title? }`       | Projeta/encerra vídeo do YouTube (permission `online_videos`) |
-| GET    | `/api/background-sound`           | —                                             | Estado + biblioteca de som de fundo (permission `background_sound`) |
-| POST   | `/api/background-sound`           | `{ action: play\|pause\|resume\|stop\|play-default, id? }` | Controla o player; `play-default` inicia o som padrão (permission `background_sound`) |
-| POST   | `/api/volume`                     | `{ action: up\|down, step? } \| { action: set, value }` | Volume dos players 0..100 (permission `volume`, só app) |
-| GET    | `/api/media-library`              | `?action=library\|canva\|image`, `lang`, `folderId`, `continuation`, `url` | Acervo/Canva do módulo Biblioteca de Mídia (permission `media_library`) |
-| POST   | `/api/media-library`              | `{ action: project, id } \| { action: canva-project, designId?\|url? } \| { action: playlist, command: add\|remove\|clear\|goto\|play\|next\|prev\|stop, id?/index? }` | Projeta item/design, controla a playlist (permission `media_library`) |
-| GET    | `/api/media-library?action=playlist` | —                                  | Itens da playlist (`modules.media_library.playlist` do userData, servido pelo main) |
-| POST   | `/api/media-library/upload`       | bytes crus + `X-File-Name`/`X-Mime-Type`/`X-Category-Id` | Recebe arquivo do celular em `<dados>/files/library/media/` (permission `media_library`) |
-| GET    | `/api/user-data`                  | `?path=...`                                   | Lê valor do user_data                      |
-| GET    | `/api/db/:path`                   | —                                             | JSON do banco (cache local ou remoto)      |
-| GET    | `/libras/:token`                  | —                                             | Bundle de animação VLibras                 |
-| POST   | `/api/register-device`            | `{ token, name, model, platform }`            | Cadastro de device (antes do auth)         |
+| Método          | Endpoint                                                  | Body / Query                                                                                                                                                           | Descrição                                                                                |
+| --------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| GET             | `/api/ping`                                               | —                                                                                                                                                                      | Health check                                                                             |
+| GET             | `/api/clock`                                              | —                                                                                                                                                                      | Hora do servidor                                                                         |
+| `/api/keyboard` | `{ key, modifiers? }`                                     | Simula tecla (`KeyboardEvent` sintético) — permission `keyboard`                                                                                                       |
+| POST            | `/api/song-slides`                                        | `{ action, index? }`                                                                                                                                                   | Controle de slides (next/prev/close/go-to)                                               |
+| GET             | `/api/song-slides`                                        | `?action=playing-check`                                                                                                                                                | Estado da apresentação de música                                                         |
+| POST            | `/api/bible`                                              | `{ action?, text?, reference?, bookId?... }`                                                                                                                           | Projeta versículo ou navega bíblia                                                       |
+| POST            | `/api/liturgy-execute`                                    | `{ id, tag?, day? }`                                                                                                                                                   | Executa item da liturgia (day = dia exibido)                                             |
+| POST            | `/api/open-song`                                          | `{ id, tag?, id_liturgy? }`                                                                                                                                            | Abre música para projeção                                                                |
+| POST            | `/api/projections/close`                                  | `{}`                                                                                                                                                                   | Encerra todas as projeções ativas                                                        |
+| POST            | `/api/announcements`                                      | `{ action, ids? }`                                                                                                                                                     | Projeta/anuncia (next/prev/stop/project)                                                 |
+| POST            | `/api/settings/devices`                                   | `{ only_authorized_devices }`                                                                                                                                          | Lê/grava flag de modo restrito                                                           |
+| GET             | `/api/music-search`                                       | `?q=...&lang=pt`                                                                                                                                                       | Busca músicas (oficial + acervo pessoal)                                                 |
+| GET             | `/api/music-library`                                      | `action=albums\|songs`, `lang`, `album`                                                                                                                                | Álbuns/faixas p/ navegar (hinários pinados + oficiais + coletâneas + "Sem álbum")        |
+| GET             | `/api/music-library/image`                                | `path=<url_image>`                                                                                                                                                     | Capa de álbum em `<dados>/files/`                                                        |
+| GET             | `/api/bible-downloaded`                                   | `?lang=pt`                                                                                                                                                             | Versões da bíblia baixadas                                                               |
+| GET             | `/api/liturgy`                                            | —                                                                                                                                                                      | Itens da liturgia atual                                                                  |
+| GET             | `/api/announcements?action=list`                          | —                                                                                                                                                                      | Lista de anúncios                                                                        |
+| GET             | `/api/online-videos`                                      | `?action=albums\|videos\|search`, `lang`, `q`, `album`                                                                                                                 | Álbuns/busca dos **dois** acervos de vídeo online (permission `online_videos`)           |
+| GET             | `/api/online-videos/image`                                | `?kind=video\|category`, `id`                                                                                                                                          | Miniatura em binário dos Meus Vídeos (permission `online_videos`)                        |
+| POST            | `/api/online-videos`                                      | `{ action: play\|close, url?, title? }`                                                                                                                                | Projeta/encerra vídeo do YouTube (permission `online_videos`)                            |
+| GET             | `/api/background-sound`                                   | —                                                                                                                                                                      | Estado + biblioteca de som de fundo (permission `background_sound`)                      |
+| POST            | `/api/background-sound`                                   | `{ action: play\|pause\|resume\|stop\|play-default, id? }`                                                                                                             | Controla o player; `play-default` inicia o som padrão (permission `background_sound`)    |
+| POST            | `/api/volume`                                             | `{ action: up\|down, step? } \| { action: set, value }`                                                                                                                | Volume dos players 0..100 (permission `volume`, só app)                                  |
+| GET             | `/api/media-library`                                      | `?action=library\|canva\|image`, `lang`, `folderId`, `continuation`, `url`                                                                                             | Acervo/Canva do módulo Biblioteca de Mídia (permission `media_library`)                  |
+| POST            | `/api/media-library`                                      | `{ action: project, id } \| { action: canva-project, designId?\|url? } \| { action: playlist, command: add\|remove\|clear\|goto\|play\|next\|prev\|stop, id?/index? }` | Projeta item/design, controla a playlist (permission `media_library`)                    |
+| GET             | `/api/media-library?action=playlist`                      | —                                                                                                                                                                      | Itens da playlist (`modules.media_library.playlist` do userData, servido pelo main)      |
+| POST            | `/api/media-library` (`canva-export`/`canva-clear-cache`) | `{ designId, format? }`                                                                                                                                                | Exporta JPG/PDF sem projetar / elimina o cache do design (round-trip 30 s)               |
+| POST            | `/api/media-library/upload`                               | bytes crus + `X-File-Name`/`X-Mime-Type`/`X-Category-Id`                                                                                                               | Recebe arquivo do celular em `<dados>/files/library/media/` (permission `media_library`) |
+| GET             | `/api/user-data`                                          | `?path=...`                                                                                                                                                            | Lê valor do user_data                                                                    |
+| GET             | `/api/db/:path`                                           | —                                                                                                                                                                      | JSON do banco (cache local ou remoto)                                                    |
+| GET             | `/libras/:token`                                          | —                                                                                                                                                                      | Bundle de animação VLibras                                                               |
+| POST            | `/api/register-device`                                    | `{ token, name, model, platform }`                                                                                                                                     | Cadastro de device (antes do auth)                                                       |
 
 Todos os endpoints POST exigem `Content-Type: application/json`.
 
@@ -1884,17 +1988,23 @@ Todos os endpoints POST exigem `Content-Type: application/json`.
 
 A aba **Biblioteca de Mídia** (`src/views/remote_control/RemoteMediaLibrary.vue`,
 `MediaLibraryModulo.kt`/`.swift`) é o primeiro módulo do remoto que **escreve**:
-- **Consulta** (`action=library|canva`) pelo mesmo *renderer round-trip* dos
+
+- **Consulta** (`action=library|canva`) pelo mesmo _renderer round-trip_ dos
   vídeos online — a biblioteca vive no IndexedDB do renderer e o Canva na API
   `window.louvorjaApi.canva` (pastas com paginação por `continuation`); só
   metadados voltam ao cliente. O Canva abre na vista **de pastas** (`folderId:
-  "root"`), igual ao `CanvaTab`; `view=designs` pede a listagem de designs
+"root"`), igual ao `CanvaTab`; `view=designs` pede a listagem de designs
   (`/designs`, que exige escopo próprio — sem ele o renderer devolve o erro e a
   UI mostra o motivo em vez do estado vazio).
 - **Projeção** (`project`, por `id`) responde pelo registry (o renderer resolve
   `louvorja://local` ou reidrata `blob:` do IDB — igual ao executor de
-  liturgia) e devolve ok/erro. `canva-project` é *fire-and-forget*: export de
+  liturgia) e devolve ok/erro. `canva-project` é _fire-and-forget_: export de
   PDF leva minutos e o desktop mostra o progresso na própria UI.
+- **Canva → playlist** (`add-canva`): no modo PDF o shell **exporta** o arquivo
+  (JPG para imagem do Canva, PDF para design — a API do Canva não serve o
+  binário do design, só thumbnail ~595 px e export) e anexa o path; no modo site
+  guarda a URL de visualização (que expira). Item de URL toca por
+  `openSiteWindow` (tipo `site`); `libRef` só para itens da biblioteca.
 - **Playlist**: leitura (`action=playlist`) servida pelo **main** direto do
   userData — sem round-trip, funciona com o módulo do desktop fechado. Os
   comandos (`add` por id, `remove`/`goto` por índice, `clear`,
@@ -1914,6 +2024,19 @@ A aba **Biblioteca de Mídia** (`src/views/remote_control/RemoteMediaLibrary.vue
   mostra o ícone do tipo.
 - **Permission**: `media_library` (403 sem ela nem `root`), no mesmo
   `Device.ts`/`DEVICE_PERMISSIONS` das demais.
+
+### Roles dos comandos remotos
+
+Todo comando de ação manda na sua role (`root` passa em todas; token global e
+localhost não têm lista e passam): `bible` (projetar versículo), `music`
+(buscar música, abrir música e passar slides — `song-slides`), `keyboard`
+(teclas de atalho do módulo Atalhos), `online_videos`, `background_sound`,
+`volume` e `media_library`. A lista completa é `DEVICE_PERMISSIONS` em
+`src/types/Device.ts`.
+
+O app confere a MESMA role no cliente antes de chamar
+(`moduloPermitido(role)` nos módulos; `ViolinApiClient.keyboard` tem o gate
+embutido): sem a role ele avisa na hora e não gasta a ida e volta que viraria 403.
 
 ### Busca de músicas com o acervo pessoal
 
@@ -2152,7 +2275,7 @@ de terceiros no renderer, sem `connect-src` para a API.
   `auth` (PKCE + troca + refresh + revoke), `callbackServer` (retorno local),
   `api` (REST + validação), `index` (fachada `{ ok, code, message }`).
 - **Porta fixa 5530**, rota `/auth/canva` → `http://127.0.0.1:5530/auth/canva`,
-  que é a string registrada em *Outside Canva → Redirect URLs*. O servidor só
+  que é a string registrada em _Outside Canva → Redirect URLs_. O servidor só
   existe durante o consentimento e é derrubado em todos os caminhos (sucesso,
   `error`, `timeout`, porta ocupada) — uma porta presa mataria a próxima
   tentativa. O `openExternal` roda **depois do bind**: o redirect tem que cair
@@ -2190,6 +2313,18 @@ claro no disco.
 e aí o código (`EADDRINUSE`, `no_credentials`, `state_mismatch`,
 `export_timeout`) sumiria da tela. `canva:exportPdf` fica pendente durante o
 job do Canva (até ~1 min) — é a barra de "Exportando…" da aba.
+
+**Prazo cancelável (`canva/http.js`)** — todas as chamadas ao Canva passam por
+`comPrazo`, e nunca por `AbortSignal.timeout()`: o timer desse não pode ser
+cancelado, ele sobrevive à resposta e dispara depois dela. O poll de exportação
+(uma requisição por segundo, até 60) empilharia timers de 15 s que abortam corpos
+já lidos — e o undici, fechando um stream que já estava fechado, lança
+`ERR_INVALID_STATE` num tick fora do `try/catch` de quem chamou. No helper o prazo
+cobre a operação inteira (cabeçalhos e corpo), o timer só morre quando o corpo
+acabou de ser lido, e um corpo que o consumidor não leu (status de erro, arquivo
+grande demais) é **cancelado** em vez de prender a conexão. O padrão é o mesmo que
+`Http.ts` já usa no renderer — `AbortSignal.any` no renderer é outro assunto: lá o
+`fetch` é do Chromium.
 
 O único evento é `site:login-wall` (`canva.onLoginWall` no preload) — main →
 renderer, quando a projeção pára numa tela de login. Ele é o inverso do invoke
@@ -2273,8 +2408,8 @@ operador está vendo.
 
 #### Todas as páginas, e a prova disso
 
-A API exporta **o documento inteiro** quando `pages` não vem no pedido (*"If
-`pages` isn't specified, all the pages are exported"*), e o PDF volta como
+A API exporta **o documento inteiro** quando `pages` não vem no pedido (_"If
+`pages` isn't specified, all the pages are exported"_), e o PDF volta como
 **um** arquivo — por isso o guardião `export_shape` exige exatamente 1 URL. O
 tamanho declarado (`page_count` do `GET /v1/designs`) viaja no payload de
 projeção (`pageCount`), e a janela compara com o `doc.numPages` que o pdf.js
@@ -2379,7 +2514,7 @@ cobertura, o operador via a página "chegando" no telão — tela branca, barra 
 ferramentas, botão de apresentação — no meio da congregação.
 
 `src/views/SiteLoader.vue` é uma tela da **SPA** (rota `/projection/site_loader`)
-com o mesmo fundo da aba *Opções → Geral → Imagem de Fundo*
+com o mesmo fundo da aba _Opções → Geral → Imagem de Fundo_
 (`getSetting(MAIN_BACKGROUND_ID)` + `estiloDeFundo`). Vale para **toda**
 projeção de Site, não só do Canva, e abre em **cada monitor** (telão e retorno).
 
@@ -2405,7 +2540,7 @@ loaders dão fade (CSS, fade_duration) → main fecha os dois depois do fade
 - **"Pronto" não é "carregado"** no Canva: o `setSiteReadyListener` só conta a
   janela depois que `tentarApresentar` resolve — apresentação confirmada **e**
   a espera dos controles decorrida (ver **Apresentação automática**).
-- **`_siteProntas`** guarda a prontidão *desde que a janela nasceu*, separado do
+- **`_siteProntas`** guarda a prontidão _desde que a janela nasceu_, separado do
   `esperando` do ciclo: o `did-finish-load` pode chegar antes do `aguardar`
   (site em cache) e janela **reutilizada** não recarrega.
 - **Ordem de abertura**: a ordem de **criação** nunca foi o problema (o loader é
@@ -2481,12 +2616,12 @@ Só `IMG: https://document-export.canva.com https://*.canva.com`
 
 O Canva tem **dois** mundos de autenticação e o app usa os dois, separados:
 
-| | O que é | Onde vive | Serve para |
-|---|---|---|---|
-| **Token da API** | OAuth2 + PKCE, `Authorization: Bearer` | cofre `canva_secrets.json`, só no main | `api.canva.com/rest` — listar pastas, designs, `view_url` |
-| **Sessão do site** | cookie em `www.canva.com` | partição `persist:lj-site` | abrir o design no navegador da projeção |
+|                    | O que é                                | Onde vive                              | Serve para                                                |
+| ------------------ | -------------------------------------- | -------------------------------------- | --------------------------------------------------------- |
+| **Token da API**   | OAuth2 + PKCE, `Authorization: Bearer` | cofre `canva_secrets.json`, só no main | `api.canva.com/rest` — listar pastas, designs, `view_url` |
+| **Sessão do site** | cookie em `www.canva.com`              | partição `persist:lj-site`             | abrir o design no navegador da projeção                   |
 
-O `view_url` é *“only accessible to the user that made the API request”*: num
+O `view_url` é _“only accessible to the user that made the API request”_: num
 design privado, o site cobra a sessão web daquele usuário. **Não existe
 endpoint do Canva que troque um access token por um cookie de sessão**, e o
 OAuth aconteceu no navegador do sistema — os cookies de lá não são nossos. Por
@@ -2499,8 +2634,8 @@ isso clicar no design caía na tela de login.
 ficam no disco do perfil e valem para a projeção **e** para a tela de retorno
 (as duas compartilham a partição).
 
-**A janela não fecha sozinha** — o título manda: *"faça login e feche esta
-janela"*. É só quando ela fecha que o app confere.
+**A janela não fecha sozinha** — o título manda: _"faça login e feche esta
+janela"_. É só quando ela fecha que o app confere.
 
 #### A conferência é por redirecionamento, não por cookie
 
@@ -2571,7 +2706,7 @@ A primeira versão fazia `executeJavaScript` + `botao.click()`. O log saiu:
 
 …e **nada mudou na tela**: o evento sintético nasce com `isTrusted: false` e o
 Chromium não roda comportamento padrão com ele — a mesma conclusão que o
-*pointer nudge* do `windowFactory.js` documenta para esta janela. O
+_pointer nudge_ do `windowFactory.js` documenta para esta janela. O
 `requestFullscreen()` do Canva ainda exigiria ativação de usuário.
 
 O desenho ficou: **`executeJavaScript` só LÊ** (estado e coordenadas
@@ -2583,22 +2718,23 @@ normalizadas 0..1) e quem age é o main, pela fila de entrada real.
 2. **Atalho do SO** — `sendInputEvent keyDown/keyUp 'P'` com os
    modificadores de `ATIVOS_POR_SO`:
 
-   | SO | modificadores | atalho |
-   |---|---|---|
-   | `darwin` | `alt` + `meta` | `⌥⌘P` |
-   | `win32` | `alt` + `control` | `Ctrl+Alt+P` |
+   | SO          | modificadores         | atalho           |
+   | ----------- | --------------------- | ---------------- |
+   | `darwin`    | `alt` + `meta`        | `⌥⌘P`            |
+   | `win32`     | `alt` + `control`     | `Ctrl+Alt+P`     |
    | **`linux`** | **`alt` + `control`** | **`Ctrl+Alt+P`** |
 
    Linux não tem ramo próprio: o bundle do Canva só distingue `"apple"` de
    `"other"` (`__c.Rb()`), então cai junto com o Windows. Fonte: atalho
-   oficial (*"Presentation mode: Alt + Ctrl + P"*).
+   oficial (_"Presentation mode: Alt + Ctrl + P"_).
+
 3. **Clique real** só se o estado não mudou — `mouseMove → mouseDown →
-   mouseUp` na posição lida, `x = round(nx * getContentBounds().width)` (a
+mouseUp` na posição lida, `x = round(nx * getContentBounds().width)` (a
    mesma conta do pointer nudge, imune à escala do monitor).
 4. Repete de 1,2 s a 12 s enquanto a barra monta.
 
 **Sucesso é estado, não intenção**: só confirma se `fullscreenElement` ficou
-não-nulo **ou** o botão *sumiu depois de ter sido visto* — `entrou()` exige a
+não-nulo **ou** o botão _sumiu depois de ter sido visto_ — `entrou()` exige a
 transição, porque um primeiro `botao:false` também significa "a barra ainda não
 montou". É isso que impede entrar **e sair** do modo duas vezes, e que trocou o
 log falso de "acionado" por um log verdadeiro.
@@ -2670,12 +2806,12 @@ Tudo sai por `Telemetry.track` (PostHog), que é **opt-out** (`Opções →
 options.telemetry`) e **não roda em dev** — sem `VITE_POSTHOG_KEY` o `track` é
 no-op, então a prova é o teste unitário, não o console.
 
-| Grupo | Eventos | Onde |
-|---|---|---|
-| **Site (universal)** | `site_projected {source, ok, has_loader, has_return, duration_ms, reason?}` | `ProjectionWindows.openSiteWindow` |
-| **Integrações** | `canva_credentials_saved/_failed`, `canva_connected/_failed`, `canva_disconnected`, `canva_web_login_succeeded/_failed`, `canva_web_logged_out`, `canva_project_as_changed`, `canva_export_quality_changed`, `canva_scope_missing` | `AppMenuIntegracoes.vue` |
-| **Aba Canva** | `canva_tab_opened`, `canva_designs_loaded/_load_failed`, `canva_project_requested{mode, via?}`, `canva_export_completed`, `canva_site_link_failed` | `CanvaTab.vue` |
-| **Apresentação** | `canva_site_presented {presented, loader_ms}` | `SiteLoader.vue` |
+| Grupo                | Eventos                                                                                                                                                                                                                            | Onde                               |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| **Site (universal)** | `site_projected {source, ok, has_loader, has_return, duration_ms, reason?}`                                                                                                                                                        | `ProjectionWindows.openSiteWindow` |
+| **Integrações**      | `canva_credentials_saved/_failed`, `canva_connected/_failed`, `canva_disconnected`, `canva_web_login_succeeded/_failed`, `canva_web_logged_out`, `canva_project_as_changed`, `canva_export_quality_changed`, `canva_scope_missing` | `AppMenuIntegracoes.vue`           |
+| **Aba Canva**        | `canva_tab_opened`, `canva_designs_loaded/_load_failed`, `canva_project_requested{mode, via?}`, `canva_export_completed`, `canva_site_link_failed`                                                                                 | `CanvaTab.vue`                     |
+| **Apresentação**     | `canva_site_presented {presented, loader_ms}`                                                                                                                                                                                      | `SiteLoader.vue`                   |
 
 Três decisões que o desenho inteiro carrega:
 
@@ -2709,7 +2845,7 @@ externa vira **só o host**.
   (`canva:thumbnail`, main faz o fetch com o Bearer) — hoje não foi preciso.
 - A porta 5530 precisa estar livre e registrada no portal; ocupada, o conectar
   falha com `EADDRINUSE` legível em vez de travar.
-- Sem `client_secret` não existe fluxo: no portal é *Generate secret*.
+- Sem `client_secret` não existe fluxo: no portal é _Generate secret_.
 - Web/PWA não conecta (não há processo main para o retorno) — a aba avisa.
 
 ---
@@ -2875,7 +3011,7 @@ AppImage/deb/rpm.
 Aliases em `vite.config.js`:
 
 | Alias         | Resolve           |
-|---------------|-------------------|
+| ------------- | ----------------- |
 | `@`           | `src/`            |
 | `@helpers`    | `src/helpers/`    |
 | `@modules`    | `src/modules/`    |
@@ -2896,10 +3032,10 @@ Aliases em `vite.config.js`:
 import { ICONS } from "@/config/Icons";
 
 // ✅ Correto
-icon: ICONS.PLAYER.PLAY
+icon: ICONS.PLAYER.PLAY;
 
 // ❌ Errado — nome solto
-icon: "player-play-filled"
+icon: "player-play-filled";
 ```
 
 Sem exceção. Quando o app trocou o acervo MDI pelo Tabler, os 354 nomes do

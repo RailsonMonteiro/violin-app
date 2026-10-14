@@ -15,6 +15,7 @@
 
 const crypto = require("crypto");
 const store = require("./store.js");
+const { comPrazoJson } = require("./http.js");
 const callbackServer = require("./callbackServer.js");
 
 const AUTHORIZE_URL = "https://www.canva.com/api/oauth/authorize";
@@ -128,24 +129,27 @@ async function _post(url, params) {
   const authorization = _basicHeader();
 
   let res;
+  let json;
   try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Accept": "application/json",
-        Authorization: authorization,
+    ({ res, json } = await comPrazoJson(
+      url,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Accept": "application/json",
+          Authorization: authorization,
+        },
+        body: body.toString(),
       },
-      body: body.toString(),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+      REQUEST_TIMEOUT_MS
+    ));
   } catch (err) {
     const falha = new Error(`Sem resposta do Canva: ${err?.message || err}`);
     falha.code = "network";
     throw falha;
   }
 
-  const json = await res.json().catch(() => null);
   if (!res.ok) {
     const falha = new Error(_messageOf(json, res.status));
     falha.code = "canva_" + res.status;

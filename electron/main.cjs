@@ -2464,6 +2464,13 @@ ipcMain.handle("canva:exportPdf", (_event, payload) =>
 );
 
 /**
+ * Exporta o design como JPG (imagem inteira) e devolve o caminho local.
+ * Caminho do controle remoto: a API do Canva só dá thumbnail (~595 px) ou
+ * export — para projetar a imagem toda, o JPG é o arquivo.
+ */
+ipcMain.handle("canva:exportImg", (_event, payload) => canva.exportDesignImg(payload));
+
+/**
  * Selos de cache da aba Canva.
  *
  * `cachedPdfs` devolve designId → `updated_at` de TUDO que tem `.pdf` E `.json`,

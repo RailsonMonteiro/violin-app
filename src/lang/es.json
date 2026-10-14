@@ -375,6 +375,7 @@
       "platform_web": "Web",
       "device_platform_label": "Plataforma",
       "no_permissions": "Sin permisos",
+      "confirm_no_permissions": "Este dispositivo se quedará sin ningún permiso: sigue registrado, pero no podrá controlar nada. ¿Guardar de todos modos?",
       "permission_root": "Acceso total",
       "permission_music": "Músicas",
       "permission_bible": "Biblia",

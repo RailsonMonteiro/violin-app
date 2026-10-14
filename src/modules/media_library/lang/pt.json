@@ -27,6 +27,7 @@
   "confirm_clear": "Limpar playlist?",
   "rename": "Renomear",
   "delete": "Excluir",
+  "add_to_playlist": "Adicionar à playlist",
   "remove_from_playlist": "Remover da playlist",
   "rename_placeholder": "Novo nome...",
   "file_added": "Arquivo adicionado à biblioteca",
