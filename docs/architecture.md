@@ -1477,6 +1477,22 @@ nosso código no stack**. Por isso o corpo tem uma bandeira (`encerrado`) e cada
 operação acontece no máximo uma vez — em vez de `try/catch` vazio em cada evento,
 que só escondia o local.
 
+**Miniatura: imagem usa o arquivo, vídeo tem a dele** — `buildThumbPath` não gera
+miniatura: devolve `louvorja://local/<arquivo>`. Isso serve para **imagem** (o
+arquivo é a própria imagem, e evita embutir a imagem inteira no IndexedDB) e é
+proibido para **vídeo**: um MP4 no `src` de um `<img>` dá ícone quebrado — e, como
+o campo ficava preenchido, o vídeo nunca entrava na fila que gera a miniatura de
+verdade. Como o **importo** gera essa miniatura (canvas → data URL) e a guarda,
+o defeito só aparecia ao **reabrir** o módulo: a miniatura boa era sobrescrita em
+memória pelo caminho do arquivo. Por isso o mount só aplica `buildThumbPath` a
+imagem, e vídeo sem `thumb` vai para a fila.
+
+Quem ainda assim tiver um `thumb` envenenado — o caminho do MP4 pode ter sido
+gravado no banco por um renomear, já que `confirmRename` salva o objeto em memória
+— se conserta sozinho: o `@error` do `<img>` limpa o campo e enfileira a
+regeneração. Imagem que não carrega (arquivo movido) vira o ícone do tipo, sem
+retentativa: não há miniatura a fazer de um arquivo que não existe.
+
 **Miniaturas de vídeo são fila, não rajada** — abrir a Biblioteca não dispara um
 `<video>` por arquivo: cada um é um `Range` em `louvorja://local` que o próprio seek
 cancela pela metade, e uma biblioteca grande viraria dezenas de carregamentos e

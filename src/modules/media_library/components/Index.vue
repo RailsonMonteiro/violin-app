@@ -138,6 +138,7 @@
                   class="media-grid-item-thumb"
                   alt=""
                   loading="lazy"
+                  @error="thumbNaoCarregou(file)"
                 />
                 <div v-else class="media-grid-item-thumb media-grid-item-thumb--icon">
                   <LjIcon :icon="fileTypeIcon(file.type)" :size="28" />
@@ -761,6 +762,26 @@ async function _enfileirarMiniaturas(alvos: MediaFile[]): Promise<void> {
   } finally {
     _miniaturasDrenando = false;
   }
+}
+
+/**
+ * Miniatura que não carregou é refeita.
+ *
+ * Um `thumb` pode vir envenenado por duas vias: o mount punha o caminho do
+ * VÍDEO no lugar dele (MP4 num `<img>`), e um renomear depois disso grava esse
+ * caminho no IndexedDB, porque `confirmRename` salva o objeto em memória. Sem
+ * esta cura, o card fica com o ícone quebrado para sempre.
+ *
+ * Não há trava de repetição: o `<img>` só existe enquanto houver `thumb`, e uma
+ * regeneração que falha deixa o campo vazio — o ciclo se encerra sozinho e o
+ * card volta ao ícone do tipo de arquivo.
+ */
+function thumbNaoCarregou(file: MediaFile): void {
+  file.thumb = undefined;
+  /* Imagem com caminho quebrado (arquivo movido) vira o ícone do tipo: não há
+     como gerar miniatura de um arquivo que não existe mais. */
+  if (file.type !== "video") return;
+  void _enfileirarMiniaturas([file]);
 }
 
 function _cancelarFilaMiniaturas(): void {
@@ -1610,11 +1631,16 @@ onMounted(async () => {
       }
       continue;
     }
-    if (
-      Platform.isDesktop &&
-      (f.type === "image" || f.type === "video") &&
-      f.path.startsWith("/")
-    ) {
+    /*
+     * Só imagem. Para vídeo, "miniatura" era o próprio arquivo: um MP4 no `src`
+     * de um `<img>` dá ícone quebrado — e, como o campo ficava preenchido, o
+     * vídeo nunca entrava na fila que gera a miniatura de verdade (o importo já
+     * gerava e guardava uma de verdade; ao reabrir, ela era sobrescrita aqui).
+     *
+     * Para imagem a troca de um data URL antigo pelo caminho `louvorja://`
+     * continua: é o que impede de embutir a imagem inteira no banco.
+     */
+    if (Platform.isDesktop && f.type === "image" && f.path.startsWith("/")) {
       if (!f.thumb || !f.thumb.startsWith("louvorja://")) {
         f.thumb = buildThumbPath(f.path);
       }
