@@ -32,6 +32,7 @@ vi.mock("@/helpers/BundleInstaller", () => ({
 vi.mock("@/helpers/BibleBundleInstaller", () => ({
   default: { isInstalled: h.bibleIsInstalled, install: h.bibleInstall },
 }));
+vi.mock("@/helpers/Telemetry", () => ({ default: { track: vi.fn() } }));
 vi.mock("@/helpers/Database", () => ({
   default: { get: h.dbGet, getLocal: h.dbGetLocal, getStoredIdsForPrefix: h.storedIds },
   setDatabaseTimingReporter: vi.fn(),
@@ -251,6 +252,97 @@ describe("Verificação Inicial leve", () => {
 
     expect(result.cachedAlbums).toEqual(new Set());
     expect(result.partialAlbums?.size ?? 0).toBe(0);
+  });
+});
+
+describe("lista de arquivos se recupera sozinha", () => {
+  const never = () => new Promise<never>(() => {});
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("renovação do catálogo pendurada não segura a lista: segue com o catálogo do disco", async () => {
+    h.needsRefresh.mockResolvedValue(true);
+    h.fullInstall.mockImplementation(never);
+    const sync = await mountSync();
+    vi.useFakeTimers();
+
+    const pending = sync.collectFiles(new Set([7]), false, []);
+    await vi.advanceTimersByTimeAsync(50_000);
+    const files = await pending;
+
+    expect(files.length).toBeGreaterThan(0);
+    expect(catalogReads()).toContain("album_7");
+  });
+
+  it("montagem que para de andar reinstala o catálogo e tenta de novo uma vez", async () => {
+    let firstRead = true;
+    h.dbGet.mockImplementation(async (key: string) => {
+      if (key === "album_7" && firstRead) {
+        firstRead = false;
+        return never();
+      }
+      return CATALOG[key] ?? null;
+    });
+    const sync = await mountSync();
+    vi.useFakeTimers();
+
+    const pending = sync.collectFiles(new Set([7]), false, []);
+    await vi.advanceTimersByTimeAsync(100_000);
+    const files = await pending;
+
+    expect(h.fullInstall).toHaveBeenCalledWith(
+      expect.objectContaining({ catalogOnly: true, force: true })
+    );
+    expect(files.length).toBeGreaterThan(0);
+  });
+
+  it("se parar de novo, falha em vez de ficar preparando para sempre", async () => {
+    h.dbGet.mockImplementation(async (key: string) =>
+      key === "album_7" ? never() : (CATALOG[key] ?? null)
+    );
+    const sync = await mountSync();
+    vi.useFakeTimers();
+
+    const outcome = sync
+      .collectFiles(new Set([7]), false, [])
+      .then(
+        () => "ok",
+        (error: Error) => error.message
+      );
+    await vi.advanceTimersByTimeAsync(400_000);
+
+    expect(await outcome).toBe("collect_stalled");
+  });
+
+  it("download do pacote sem progresso é abandonado e o pedido seguinte não fica preso nele", async () => {
+    h.needsRefresh.mockResolvedValue(true);
+    h.fullInstall.mockImplementationOnce(never);
+    const sync = await mountSync();
+    vi.useFakeTimers();
+
+    const stuck = sync.refreshCatalogAfterUpdate();
+    await vi.advanceTimersByTimeAsync(100_000);
+    expect(await stuck).toBe(false);
+
+    const next = sync.downloadBundle({ catalogOnly: true, force: true });
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(await next).toBe(true);
+    expect(h.fullInstall).toHaveBeenCalledTimes(2);
+  });
+
+  it("informa o andamento da montagem para a tela mostrar números reais", async () => {
+    const sync = await mountSync();
+    const seen: Array<[number, number]> = [];
+
+    await sync.collectFiles(new Set([7]), false, [], false, [], (done, total) =>
+      seen.push([done, total])
+    );
+
+    expect(seen[0]).toEqual([0, 2]);
+    expect(seen.at(-1)).toEqual([2, 2]);
   });
 });
 
