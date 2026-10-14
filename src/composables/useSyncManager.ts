@@ -146,6 +146,47 @@ let catalogFailedAt = 0;
 // na hora: numa rede que soluça, cada abertura seria uma nova tentativa do zero.
 const BUNDLE_RETRY_COOLDOWN_MS = 5 * 60_000;
 
+// Um passo que não dá sinal de vida por tanto tempo está pendurado, não lento:
+// abandonamos e recomeçamos em vez de deixar o operador olhando "Preparando…".
+const BUNDLE_STALL_MS = 90_000;
+const COLLECT_STALL_MS = 90_000;
+// Tempo máximo que montar a lista espera a renovação do catálogo; passado isso
+// segue com o catálogo que já está no disco.
+const CATALOG_REFRESH_WAIT_MS = 45_000;
+const CATALOG_RECOVERY_WAIT_MS = 120_000;
+
+let bundleProgressAt = Date.now();
+
+class CollectStalledError extends Error {
+  constructor() {
+    super("collect_stalled");
+  }
+}
+
+/** Corre `run` e rejeita com `CollectStalledError` se ele parar de chamar `alive()`. */
+async function untilStalled<T>(
+  run: (alive: () => void) => Promise<T>,
+  stallMs: number
+): Promise<T> {
+  let lastAlive = Date.now();
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const stalled = new Promise<never>((_, reject) => {
+    timer = setInterval(() => {
+      if (Date.now() - lastAlive > stallMs) reject(new CollectStalledError());
+    }, 5_000);
+  });
+  try {
+    return await Promise.race([
+      run(() => {
+        lastAlive = Date.now();
+      }),
+      stalled,
+    ]);
+  } finally {
+    clearInterval(timer);
+  }
+}
+
 // Cada fase reportava o próprio 0→100 (baixar, extrair, gravar). A barra chegava
 // a 100% e voltava a 0% — e, valendo 0, as telas a desenhavam como
 // "indeterminada". Um percentual só, com um trecho fixo por fase, nunca recua.
@@ -820,14 +861,86 @@ export function useSyncManager() {
 
   // ─── Collections Download ───────────────────────────────────────
 
+  /**
+   * Espera a renovação do catálogo no máximo `CATALOG_REFRESH_WAIT_MS`. É um
+   * melhor-esforço: se ela não volta a tempo, a lista sai do catálogo que já
+   * está no disco e o download pendurado é abandonado.
+   */
+  async function refreshCatalogBounded(): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const gaveUp = await Promise.race([
+      refreshCatalogAfterUpdate()
+        .catch(() => false)
+        .then(() => false),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(true), CATALOG_REFRESH_WAIT_MS);
+      }),
+    ]);
+    clearTimeout(timer);
+    if (gaveUp) {
+      console.warn("[useSyncManager] renovação do catálogo demorou demais; seguindo sem ela");
+      catalogRefreshFailedAt = Date.now();
+      cancelBundle();
+    }
+  }
+
+  /**
+   * Monta a lista de arquivos das coletâneas escolhidas. Este é o único caminho
+   * — Sincronizar e Verificação Inicial passam por aqui — e ele se recupera
+   * sozinho: se a montagem parar de andar, reinstala o catálogo (o que o
+   * operador faria à mão em "Reinstalar banco de dados") e tenta de novo uma vez.
+   */
   async function collectFiles(
     selectedAlbums: Set<number>,
     selectedHymnal: boolean,
     hymnalIds: number[],
     selectedHymnal1996 = false,
-    hymnal1996Ids: number[] = []
+    hymnal1996Ids: number[] = [],
+    onProgress?: (done: number, total: number) => void
   ): Promise<FileEntry[]> {
-    await refreshCatalogAfterUpdate().catch(() => false);
+    const attempt = () =>
+      untilStalled(
+        (alive) =>
+          collectFilesOnce(
+            selectedAlbums,
+            selectedHymnal,
+            hymnalIds,
+            selectedHymnal1996,
+            hymnal1996Ids,
+            alive,
+            onProgress
+          ),
+        COLLECT_STALL_MS
+      );
+
+    try {
+      return await attempt();
+    } catch (error) {
+      if (!(error instanceof CollectStalledError)) throw error;
+      console.warn("[useSyncManager] collectFiles: sem progresso; reinstalando o catálogo");
+      void import("@/helpers/Telemetry")
+        .then(({ default: Telemetry }) => Telemetry.track("sync_collect_stalled", {}))
+        .catch(() => {});
+      cancelBundle();
+      await untilStalled(
+        () => downloadBundle({ catalogOnly: true, force: true }).catch(() => false),
+        CATALOG_RECOVERY_WAIT_MS
+      ).catch(() => false);
+      return attempt();
+    }
+  }
+
+  async function collectFilesOnce(
+    selectedAlbums: Set<number>,
+    selectedHymnal: boolean,
+    hymnalIds: number[],
+    selectedHymnal1996: boolean,
+    hymnal1996Ids: number[],
+    alive: () => void,
+    onProgress?: (done: number, total: number) => void
+  ): Promise<FileEntry[]> {
+    await refreshCatalogBounded();
+    alive();
     const files = new Map<string, FileEntry>();
     const albumIds = [...selectedAlbums];
     const allMusicIds = new Set<number>();
@@ -840,6 +953,7 @@ export function useSyncManager() {
         .filter((id) => !disabled.includes(Number(id)))
         .map(async (id) => {
           const album = await fetchJson<MusicData>(`album_${id}`);
+          alive();
           if (!album) return;
           const f = toFile(album.url_image);
           if (f) files.set(f.remote, f);
@@ -856,7 +970,13 @@ export function useSyncManager() {
     }
 
     const musicIds = [...allMusicIds];
-    await collectMusicFiles(musicIds, files);
+    onProgress?.(0, musicIds.length);
+    await collectMusicFiles(musicIds, files, {
+      onBatch: (done) => {
+        alive();
+        onProgress?.(done, musicIds.length);
+      },
+    });
 
     return [...files.values()];
   }
@@ -867,7 +987,7 @@ export function useSyncManager() {
   ): Promise<FileEntry[]> {
     // Montar a lista a partir de um catálogo de versão anterior baixaria pelos
     // endereços antigos; a leitura local do scan não deve gerar rede.
-    if (!localOnly) await refreshCatalogAfterUpdate().catch(() => false);
+    if (!localOnly) await refreshCatalogBounded();
     const files = new Map<string, FileEntry>();
     const album = await fetchJson<MusicData>(`album_${albumId}`, { localOnly });
     if (!album) return [];
@@ -892,7 +1012,10 @@ export function useSyncManager() {
   async function collectMusicFiles(
     musicIds: number[],
     files: Map<string, FileEntry>,
-    { localOnly = false }: { localOnly?: boolean } = {}
+    {
+      localOnly = false,
+      onBatch,
+    }: { localOnly?: boolean; onBatch?: (done: number) => void } = {}
   ): Promise<void> {
     // `scanCache` pode chamar esta função para até três álbuns ao mesmo tempo.
     // Um lote fixo de quatro limita a rajada de leitura e persistência no IDB
@@ -906,6 +1029,7 @@ export function useSyncManager() {
           addMusicToFileMap(m, files);
         })
       );
+      onBatch?.(Math.min(i + BATCH, musicIds.length));
     }
   }
 
@@ -1148,7 +1272,7 @@ export function useSyncManager() {
     activeBundleDownload = pending;
     activeBundleKind = kind;
     try {
-      return await pending;
+      return await untilBundleStalls(pending);
     } finally {
       if (activeBundleDownload === pending) {
         activeBundleDownload = null;
@@ -1157,11 +1281,44 @@ export function useSyncManager() {
     }
   }
 
+  /**
+   * Devolve o resultado do download, ou `false` se ele ficar `BUNDLE_STALL_MS`
+   * sem progresso. Sem isto, uma conexão que trava no meio do corpo (ou uma
+   * transação do IndexedDB que não volta) deixava a promessa compartilhada
+   * pendurada: todo pedido seguinte do pacote esperava nela e só reiniciar o
+   * app destravava.
+   */
+  function untilBundleStalls(pending: Promise<boolean>): Promise<boolean> {
+    return new Promise<boolean>((resolve, reject) => {
+      const timer = setInterval(() => {
+        if (Date.now() - bundleProgressAt < BUNDLE_STALL_MS) return;
+        clearInterval(timer);
+        console.warn("[useSyncManager] downloadBundle: sem progresso, abandonando");
+        activeBundleAbort?.abort();
+        activeBundleAbort = null;
+        bundleInstalling.value = false;
+        bgTasks.updateTask("db-bundle", { status: "error" });
+        resolve(false);
+      }, 5_000);
+      pending.then(
+        (value) => {
+          clearInterval(timer);
+          resolve(value);
+        },
+        (error) => {
+          clearInterval(timer);
+          reject(error);
+        }
+      );
+    });
+  }
+
   async function downloadBundleInternal(
     opts: { force?: boolean; version?: number; bibleOnly?: boolean; catalogOnly?: boolean } = {}
   ): Promise<boolean> {
     if (bundleInstalling.value) return false;
 
+    bundleProgressAt = Date.now();
     bundleInstalling.value = true;
     bundleProgress.value = {
       phase: "download",
@@ -1170,8 +1327,9 @@ export function useSyncManager() {
       bytesReceived: 0,
       bytesTotal: 0,
     };
-    activeBundleAbort = new AbortController();
-    const signal = activeBundleAbort.signal;
+    const abort = new AbortController();
+    activeBundleAbort = abort;
+    const signal = abort.signal;
 
     const taskId = "db-bundle";
     bgTasks.registerTask(taskId, "shell.background_tasks.db_bundle", () => {
@@ -1186,6 +1344,7 @@ export function useSyncManager() {
         version: opts.version,
         signal,
         onProgress: (p: BundleProgress) => {
+          bundleProgressAt = Date.now();
           bundleProgress.value = p;
           const pct = bundlePercentOf(p);
           const received = p.bytesReceived ?? (p.phase === "download" ? p.current : 0);
@@ -1235,8 +1394,12 @@ export function useSyncManager() {
       }
       return false;
     } finally {
-      bundleInstalling.value = false;
-      activeBundleAbort = null;
+      // Um download abandonado por estagnação pode terminar muito depois; não
+      // deixa que ele desligue a bandeira de uma instalação que já é outra.
+      if (activeBundleAbort === abort) {
+        bundleInstalling.value = false;
+        activeBundleAbort = null;
+      }
     }
   }
 

@@ -1323,7 +1323,11 @@ async function startDownloads(): Promise<void> {
       selectedHymnal.value,
       hymnalIds.value,
       selectedHymnal1996.value,
-      hymnal1996Ids.value
+      hymnal1996Ids.value,
+      (done, total) => {
+        prepareDone.value = done;
+        prepareTotal.value = total;
+      }
     );
   } catch (e) {
     console.error("[Sincronizar] collectFiles:", e);
