@@ -203,6 +203,11 @@ function hasOnlineVideosPermission(req) {
   return hasDevicePermission(req, "online_videos");
 }
 
+/** Biblioteca de Mídia exige a permission `media_library` (ou `root`). */
+function hasMediaLibraryPermission(req) {
+  return hasDevicePermission(req, "media_library");
+}
+
 
 /**
  * Estado da biblioteca de som de fundo (só metadados — os bytes ficam no
@@ -249,6 +254,177 @@ function isVolumeResponse(payload) {
     payload.value >= 0 &&
     payload.value <= 100
   );
+}
+
+
+/**
+ * Biblioteca de Mídia — um item do acervo do operador (`http:media-library`).
+ *
+ * Só metadados: os bytes nunca cruzam o main→cliente por aqui (miniatura vai
+ * por `?action=image`). `thumb` é caminho servido por `/api/media-library/image`
+ * (ou `null`); `type` é livre (extensão manda no desktop) e `addedAt` é epoch ms.
+ */
+function isMediaLibraryItem(item) {
+  return (
+    isPlainObject(item) &&
+    typeof item.id === "string" &&
+    item.id.length <= 256 &&
+    typeof item.name === "string" &&
+    item.name.length <= 500 &&
+    typeof item.type === "string" &&
+    item.type.length <= 32 &&
+    isImageField(item.thumb) &&
+    (item.categoryId === null || item.categoryId === undefined || typeof item.categoryId === "string") &&
+    (item.addedAt === null || item.addedAt === undefined || Number.isFinite(item.addedAt))
+  );
+}
+
+
+/** Itens + categorias da biblioteca de mídia (renderer → IndexedDB). */
+function isMediaLibraryItemsResponse(payload) {
+  if (!isPlainObject(payload) || payload.status !== "ok" || !Array.isArray(payload.items)) {
+    return false;
+  }
+  if (payload.items.length > 5_000) return false;
+  if (!Array.isArray(payload.categories) || payload.categories.length > 2_000) return false;
+  return (
+    payload.items.every(isMediaLibraryItem) &&
+    payload.categories.every(
+      (category) =>
+        isPlainObject(category) &&
+        typeof category.id === "string" &&
+        category.id.length <= 256 &&
+        typeof category.name === "string" &&
+        category.name.length <= 200 &&
+        (category.color === null || category.color === undefined || typeof category.color === "string")
+    )
+  );
+}
+
+
+/**
+ * Um item do Canva no formato remoto (`http:media-library`).
+ * `type` ∈ folder|design|image; designs não têm `url` estável (só `thumb`),
+ * images têm `url` de thumbnail — projeção de design passa pelo export PDF.
+ */
+function isMediaLibraryCanvaItem(item) {
+  if (!isPlainObject(item)) return false;
+  if (item.type !== "folder" && item.type !== "design" && item.type !== "image") return false;
+  if (typeof item.id !== "string" || item.id.length > 256) return false;
+  if (typeof item.name !== "string" || item.name.length > 1_000) return false;
+  if (!isImageField(item.thumb)) return false;
+  if (item.url !== null && item.url !== undefined && (typeof item.url !== "string" || item.url.length > 4_096)) {
+    return false;
+  }
+  if (
+    item.pageCount !== null &&
+    item.pageCount !== undefined &&
+    (!Number.isInteger(item.pageCount) || item.pageCount < 0)
+  ) {
+    return false;
+  }
+  return (
+    item.updatedAt === null ||
+    item.updatedAt === undefined ||
+    (Number.isFinite(item.updatedAt) && item.updatedAt >= 0)
+  );
+}
+
+
+/**
+ * Página de itens do Canva + PDFs já exportados (cache do desktop).
+ *
+ * Aceita também o envelope de erro do renderer (`{status:"error", error}`) —
+ * sem isso a mensagem real ("Canva desconectado") chegava ao cliente como
+ * 502 genérico de payload inválido.
+ */
+function isMediaLibraryCanvaResponse(payload) {
+  if (!isPlainObject(payload)) return false;
+  if (payload.status === "error" && typeof payload.error === "string") return true;
+  if (payload.status !== "ok" || !Array.isArray(payload.items)) {
+    return false;
+  }
+  if (payload.items.length > 2_000) return false;
+  if (payload.continuation !== null && payload.continuation !== undefined && typeof payload.continuation !== "string") {
+    return false;
+  }
+  const cached = payload.cached;
+  if (cached !== null && cached !== undefined) {
+    if (!isPlainObject(cached)) return false;
+    const keys = Object.keys(cached);
+    if (keys.length > 2_000) return false;
+    if (!keys.every((key) => key.length <= 256 && Number.isFinite(cached[key]))) return false;
+  }
+  return payload.items.every(isMediaLibraryCanvaItem);
+}
+
+
+/**
+ * Resposta do `canva-export`: o arquivo saiu (ou já estava) no cache.
+ * Aceita também o envelope de erro do renderer com o motivo real.
+ */
+function isMediaLibraryCanvaExportResponse(payload) {
+  if (!isPlainObject(payload)) return false;
+  if (payload.status === "error" && typeof payload.error === "string") return true;
+  if (payload.status !== "ok") return false;
+  return (
+    typeof payload.cached === "boolean" &&
+    (payload.title == null || typeof payload.title === "string") &&
+    (payload.pageCount == null || Number.isInteger(payload.pageCount))
+  );
+}
+
+
+/**
+ * Resposta do `add-canva` na playlist: o item que entrou. Mesmo molde do
+ * `isMediaLibraryItem` — o shell devolve `{id, name, type}` do arquivo.
+ */
+function isMediaLibraryPlaylistAddResponse(payload) {
+  if (!isPlainObject(payload)) return false;
+  if (payload.status === "error" && typeof payload.error === "string") return true;
+  if (payload.status !== "ok") return false;
+  return isMediaLibraryItem(payload.item);
+}
+
+
+/** Resposta de comando com feedback do renderer (project). */
+function isMediaLibraryCommandResponse(payload) {
+  return (
+    isPlainObject(payload) &&
+    (payload.status === "ok" || (payload.status === "error" && typeof payload.error === "string"))
+  );
+}
+
+
+/**
+ * Playlist de mídia do desktop (`modules.media_library.playlist` do userData).
+ * Itens `{id, name, type}` — o que o controle remoto precisa para listar.
+ */
+function isMediaLibraryPlaylistResponse(payload) {
+  if (!isPlainObject(payload) || payload.status !== "ok" || !Array.isArray(payload.items)) {
+    return false;
+  }
+  if (payload.items.length > 500) return false;
+  return payload.items.every(
+    (item) =>
+      isPlainObject(item) &&
+      typeof item.id === "string" &&
+      item.id.length > 0 &&
+      item.id.length <= 256 &&
+      typeof item.name === "string" &&
+      item.name.length <= 500 &&
+      typeof item.type === "string" &&
+      item.type.length <= 32
+  );
+}
+
+
+/** Binário da miniatura vindo do renderer (`?action=image`). */
+function isMediaLibraryImageResponse(payload) {
+  if (!isPlainObject(payload) || payload.status !== "ok") return false;
+  if (payload.data === null) return true;
+  if (!(payload.data instanceof ArrayBuffer) && !ArrayBuffer.isView(payload.data)) return false;
+  return typeof payload.mime === "string" && /^image\/[a-z0-9.+-]+$/i.test(payload.mime);
 }
 
 
@@ -351,6 +527,7 @@ function setupRoutes(
     isSlideStateResponse,
     isAnnouncementsResponse,
     isLibrasBundleResponse,
+    hasDevicePermission,
   });
   remoteRoutes.register(app, {
     getValidMainWindow,
@@ -365,6 +542,13 @@ function setupRoutes(
     isBackgroundSoundStateResponse,
     isVolumeResponse,
     hasOnlineVideosPermission,
+    hasMediaLibraryPermission,
+    isMediaLibraryItemsResponse,
+    isMediaLibraryCanvaResponse,
+    isMediaLibraryCanvaExportResponse,
+    isMediaLibraryPlaylistAddResponse,
+    isMediaLibraryCommandResponse,
+    isMediaLibraryImageResponse,
     hasDevicePermission,
   });
 
@@ -415,6 +599,7 @@ module.exports = {
   normalizeKeyName: remoteRoutes.normalizeKeyName,
   extractYoutubeVideoId: remoteRoutes.extractYoutubeVideoId,
   hasOnlineVideosPermission,
+  hasMediaLibraryPermission,
   isOnlineVideosAlbumsResponse,
   isOnlineVideosVideosResponse,
   isOnlineVideoImageResponse,
@@ -424,4 +609,11 @@ module.exports = {
   hasDevicePermission,
   isBackgroundSoundStateResponse,
   isVolumeResponse,
+  isMediaLibraryItemsResponse,
+  isMediaLibraryCanvaResponse,
+  isMediaLibraryCanvaExportResponse,
+  isMediaLibraryPlaylistAddResponse,
+  isMediaLibraryCommandResponse,
+  isMediaLibraryPlaylistResponse,
+  isMediaLibraryImageResponse,
 };

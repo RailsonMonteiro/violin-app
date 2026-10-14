@@ -1182,15 +1182,65 @@ $storage.hydrate().then(async () => {
               }
               break;
             }
-            const r = await api.exportPdf(designId);
+            /*
+             * Modo PDF: imagem do Canva entra como JPG — a API não serve o
+             * binário do design (só thumbnail ~595 px e export), então a
+             * imagem INTEIRA só chega exportando. Design segue em PDF.
+             */
+            const image = clip(data.kind, 16) === "image";
+            const r = image ? await api.exportImg(designId) : await api.exportPdf(designId);
             if (r?.ok && r.path) {
               await Media.projectFile({
                 url: Path.local(r.path),
-                type: "pdf",
+                type: image ? "image" : "pdf",
                 title: clip(r.title, 500),
                 ...(Number.isInteger(r.pageCount) ? { pageCount: r.pageCount } : {}),
               });
             }
+            break;
+          }
+
+          case "canva-export": {
+            // Exporta sem projetar — o pedido do botão do card. O formato vem
+            // do cliente: JPG para imagem do Canva, PDF para design.
+            const designId = clip(data.designId, 256);
+            const api = canvaApi();
+            if (!designId || !api) {
+              respond({ status: "error", error: "Canva indisponível" });
+              break;
+            }
+            const image = clip(data.format, 16) === "jpg";
+            const r = image ? await api.exportImg(designId) : await api.exportPdf(designId);
+            if (!r?.ok) {
+              respond({ status: "error", error: clip(r?.message, 300) || "Falha ao exportar" });
+              break;
+            }
+            respond({
+              status: "ok",
+              cached: r.cached === true,
+              title: clip(r.title, 500),
+              ...(Number.isInteger(r.pageCount) ? { pageCount: r.pageCount } : {}),
+            });
+            break;
+          }
+
+          case "canva-clear-cache": {
+            // Elimina o PDF/JPG guardado daquele design (confirmação no cliente).
+            const designId = clip(data.designId, 256);
+            const api = canvaApi();
+            if (!designId || !api) {
+              respond({ status: "error", error: "Canva indisponível" });
+              break;
+            }
+            const r = await api.clearCachedPdf(designId);
+            if (!r?.ok) {
+              respond({
+                status: "error",
+                error: clip(r?.message, 300) || "Falha ao limpar o cache",
+              });
+              break;
+            }
+            respond({ status: "ok" });
             break;
           }
 
@@ -1249,7 +1299,91 @@ $storage.hydrate().then(async () => {
               break;
             }
 
+            if (command === "add-canva") {
+              /*
+               * Canva → playlist. A API do Canva não dá arquivo: só thumbnail
+               * (~595 px) e export. No modo PDF exportamos o arquivo de verdade
+               * (JPG para imagem, PDF para design); no modo site guardamos a
+               * URL de visualização — que expira, e aí o item falha com o
+               * motivo no log.
+               */
+              const designId = clip(data.designId, 256);
+              const api = canvaApi();
+              if (!designId || !api) {
+                respond({ status: "error", error: "Canva indisponível" });
+                break;
+              }
+              const image = clip(data.kind, 16) === "image";
+              const mode =
+                UserData.get(KEYS.OPTIONS.INTEGRATIONS.CANVA.PROJECT_AS, "pdf") === "site"
+                  ? "site"
+                  : "pdf";
+              let item;
+              if (mode === "site") {
+                const r = await api.designUrl(designId);
+                if (!r?.ok || !r.url) {
+                  respond({
+                    status: "error",
+                    error: clip(r?.message, 300) || "Falha ao buscar o link do Canva",
+                  });
+                  break;
+                }
+                item = {
+                  id: `canva:${designId}`,
+                  name: clip(data.name || designId, 500),
+                  path: r.url,
+                  type: "site",
+                  canva: true,
+                };
+              } else {
+                const r = image ? await api.exportImg(designId) : await api.exportPdf(designId);
+                if (!r?.ok || !r.path) {
+                  respond({
+                    status: "error",
+                    error: clip(r?.message, 300) || "Falha ao exportar o design",
+                  });
+                  break;
+                }
+                item = {
+                  id: `canva:${designId}`,
+                  name: clip(r.title || data.name || designId, 500),
+                  path: r.path,
+                  type: image ? "image" : "pdf",
+                  canva: true,
+                };
+              }
+              const itens = lerPlaylist();
+              if (!itens.some((existente) => String(existente?.id) === item.id)) {
+                itens.push(item);
+                gravarPlaylist(itens);
+              }
+              respond({ status: "ok", item });
+              break;
+            }
+
             const playlist = lerPlaylist();
+
+            if (command === "next" || command === "prev") {
+              /*
+               * PDF no telão manda: próximo/anterior é PÁGINA, não item da
+               * playlist. `Media.nextSlide/prevSlide` é o mesmo caminho do
+               * teclado — com o módulo da Biblioteca aberto ele delega para a
+               * lista do próprio módulo (que trata a última página), e com ele
+               * fechado vira a página do documento.
+               */
+              const noPalco = localStorage.getItem(KEYS.PROJECTION.LJ_FILE_PROJECTION);
+              let palco = null;
+              try {
+                palco = noPalco ? JSON.parse(noPalco) : null;
+              } catch {
+                palco = null;
+              }
+              if (palco?.type === "pdf") {
+                await (command === "next" ? Media.nextSlide() : Media.prevSlide());
+                break;
+              }
+            }
+
             if (command === "stop") {
               remoteMediaPlaylistIndex = -1;
               localStorage.removeItem(KEYS.PROJECTION.LJ_FILE_PROJECTION);
@@ -1282,13 +1416,25 @@ $storage.hydrate().then(async () => {
             const item = playlist[target];
             const url = mediaLibraryItemUrl(item);
             if (url) {
+              if (item.type === "site") {
+                // Item de URL (Canva em modo site): mesma exclusão mútua do
+                // `canva-project` — fecha o palco e abre a janela de site.
+                await Media.close(true);
+                await Media.closeProjectionStage();
+                await ProjectionWindows.openSiteWindow(url, "canva");
+                remoteMediaPlaylistIndex = target;
+                break;
+              }
               await Media.projectFile({
                 url,
                 type: item.type || "image",
                 title: clip(item.name, 500),
-                libRef: item.id
-                  ? { table: DB_TABLE.MEDIA_LIBRARY, id: String(item.id) }
-                  : undefined,
+                // Canva não tem registro no IndexedDB — libRef só para os
+                // itens que vieram da biblioteca.
+                libRef:
+                  item.id && !item.canva
+                    ? { table: DB_TABLE.MEDIA_LIBRARY, id: String(item.id) }
+                    : undefined,
               });
               remoteMediaPlaylistIndex = target;
             }
@@ -1984,6 +2130,9 @@ $storage.hydrate().then(async () => {
         }
         case "http:online-videos":
           await handleOnlineVideosRequest(data, action);
+          break;
+        case "http:media-library":
+          await handleMediaLibraryHttp(data);
           break;
         case "http:background-sound": {
           // Som de fundo: o player é single (useBackgroundSound), então o

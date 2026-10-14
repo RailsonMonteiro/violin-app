@@ -101,6 +101,11 @@
         <remote-presenter :token="token" @show-snackbar="showSnackbar" />
       </div>
 
+      <!-- Tab Biblioteca de Mídia -->
+      <div v-if="isBooted('media_library')" v-show="tab === 'media_library'" class="rc-pane">
+        <remote-media-library ref="mediaLibraryRef" :token="token" @show-snackbar="showSnackbar" />
+      </div>
+
       <!-- Tab Atalhos -->
       <div v-if="isBooted('shortcuts')" v-show="tab === 'shortcuts'" class="rc-pane">
         <remote-shortcuts :token="token" @show-snackbar="showSnackbar" />
@@ -243,6 +248,7 @@ import RemoteShortcuts from "./RemoteShortcuts.vue";
 import RemoteVideos from "./RemoteVideos.vue";
 import RemoteBackgroundSound from "./RemoteBackgroundSound.vue";
 import RemotePresenter from "./RemotePresenter.vue";
+import RemoteMediaLibrary from "./RemoteMediaLibrary.vue";
 
 /** @typedef {import('@/types/Bible').ActiveBibleState} ActiveBibleState */
 
@@ -261,6 +267,7 @@ const liturgyRef = ref(null);
 const announcementsRef = ref(null);
 const videosRef = ref(null);
 const backgroundSoundRef = ref(null);
+const mediaLibraryRef = ref(null);
 const musicRef = ref(null);
 
 const tabItems = computed(() => [
@@ -292,6 +299,11 @@ const tabItems = computed(() => [
     value: "presenter",
     label: t("remote_control.tabs.presenter"),
     icon: ICONS.PROJECTION.PRESENTATION,
+  },
+  {
+    value: "media_library",
+    label: t("remote_control.tabs.media_library"),
+    icon: ICONS.MODULES.MEDIA_LIBRARY,
   },
 ]);
 
@@ -719,6 +731,8 @@ async function refreshState() {
       await musicRef.value.refresh();
     } else if (tab.value === "background_sound" && backgroundSoundRef.value) {
       await backgroundSoundRef.value.refresh();
+    } else if (tab.value === "media_library" && mediaLibraryRef.value) {
+      await mediaLibraryRef.value.refresh();
     }
   } finally {
     loading.value = false;

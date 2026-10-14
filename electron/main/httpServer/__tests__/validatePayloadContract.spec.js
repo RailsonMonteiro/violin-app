@@ -89,7 +89,8 @@ beforeEach(() => {
     isDestroyed: () => false,
     send: (channel, payload) => {
       // Renderer simulado: responde imediatamente pela porta real do registry.
-      if (channel !== "http:background-sound" || !payload?.requestId || !listener) return;
+      if (!["http:background-sound", "http:media-library"].includes(channel)) return;
+      if (!payload?.requestId || !listener) return;
       listener({ sender }, { requestId: payload.requestId, payload: nextResponse });
     },
   };
@@ -154,5 +155,43 @@ describe("validatePayload no registry real", () => {
 
     expect(res.code).toBe(200);
     expect(res.body.playing).toBe(false);
+  });
+
+  it("biblioteca de mídia válida → 200 pelo prefixo media-library", async () => {
+    nextResponse = {
+      status: "ok",
+      items: [
+        {
+          id: "file_1",
+          name: "Culto.jpg",
+          type: "image",
+          thumb: "/api/media-library/image?url=louvorja%3A%2F%2Flocal%2Fx.jpg",
+          categoryId: null,
+          addedAt: 1,
+        },
+      ],
+      categories: [{ id: "cat", name: "Fotos", color: "#123456" }],
+    };
+
+    const res = await callGet("/api/media-library", { action: "library" });
+
+    expect(res.code).toBe(200);
+    expect(res.body.items[0].type).toBe("image");
+  });
+
+  it("project com item inexistente → 404 pelo validador inline", async () => {
+    nextResponse = { status: "error", error: "Item não encontrado na biblioteca" };
+
+    const res = await callPost("/api/media-library", { action: "project", id: "x" });
+
+    expect(res.code).toBe(404);
+  });
+
+  it("itens fora do contrato → 502 (contrato da biblioteca de mídia)", async () => {
+    nextResponse = { status: "ok", items: "não é lista" };
+
+    const res = await callGet("/api/media-library", { action: "library" });
+
+    expect(res.code).toBe(502);
   });
 });
