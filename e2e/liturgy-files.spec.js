@@ -78,8 +78,11 @@ test("arquivo escolhido na liturgia persiste após reload e projeta offline", as
   await choose(page, "aviso.png");
   await dialog.getByTestId("item-save").click();
   await expect(dialog).not.toBeVisible();
+  // UserData grava com debounce de 300 ms: em máquina lenta o diálogo fecha antes.
+  await expect
+    .poll(() => savedFile(page))
+    .toMatchObject({ dir: "aviso.png", ref_id: expect.any(String) });
   const file = await savedFile(page);
-  expect(file).toMatchObject({ dir: "aviso.png", ref_id: expect.any(String) });
   expect(JSON.stringify(file)).not.toContain("blob:");
   expect(await storedFiles(page)).toEqual([
     { id: file.ref_id, name: "aviso.png", bytes: image.length },

@@ -160,7 +160,7 @@
     <!-- Layer 2: Avisos (Utilitários) — por cima de tudo, como a janela própria fazia -->
     <Transition name="fade" :duration="fadeDurationMs">
       <div v-if="avisosAtivos" class="layer-avisos" :style="{ '--fade-ms': fadeDurationMs + 'ms' }">
-        <AnnouncementsLayer />
+        <AnnouncementsLayer hold-last-slide-on-close />
       </div>
     </Transition>
 
