@@ -422,6 +422,7 @@
       "app_downloading": "Descargando actualización…",
       "app_downloaded": "Actualización descargada — lista para instalar.",
       "app_error": "Error al verificar actualización.",
+      "app_offline": "Sin conexión con internet. Verifica la conexión e intenta de nuevo.",
       "pwa_idle": "Comprueba si hay una nueva versión de la app.",
       "pwa_checking": "Buscando actualizaciones de la app…",
       "pwa_current": "Comprobación terminada. No se encontraron nuevas actualizaciones.",

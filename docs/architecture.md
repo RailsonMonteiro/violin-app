@@ -788,6 +788,30 @@ evita o erro "Please check update first" quando o check caiu para a API.
 O `_state` do updater também carrega métricas de download (`bytesPerSecond`,
 `transferred`, `total`) usadas pelo diálogo de progresso.
 
+**Erro cru não vira texto de tela.** Com a API fora, Opções → Procurar
+atualizações mostrava `getaddrinfo ENOTFOUND api.github.com`: o `Error` do Node
+entrava direto em `_state.error` e a tela o exibia. Hoje o main **classifica** e
+devolve categoria, e o texto é do renderer:
+
+| Estado  | Categoria (`errorKind`) | Texto na tela                 |
+| ------- | ----------------------- | ----------------------------- |
+| `error` | `network`               | `options.updates.app_offline` |
+| `error` | `http`                  | `options.updates.app_error`   |
+| `error` | `unknown`               | `options.updates.app_error`   |
+
+O detalhe técnico fica em `errorDetail` e no console — diagnóstico, nunca
+interface. A classificação reaproveita o padrão de rede de
+`onlineVideo/runner.js`; o de `Http.ts` não alcança o main e nem cobre
+`ENOTFOUND`. A tabela de texto é a função pura `src/helpers/UpdaterStatus.ts`
+(fora do componente de ~900 linhas, cujo spec monta com `isDesktop: false` e
+nunca exercitou este caminho).
+
+A verificação também **reporta ao `netHealth`**: falha de rede conta como
+`report(false)`; resposta HTTP conta como `report(true)`, porque o servidor
+respondeu. Uma falha isolada não vira "offline" — o `netHealth` tem carência de
+duas falhas. E `v-requires-network` no botão só bloqueia quando o app **já sabe**
+que está sem rede, que é por isso que uma falha nova de DNS chegava à tela.
+
 ### Opções da tela de Atualizações
 
 Persistidas em `user_data.options` e aplicadas em runtime via `Platform.updater.setOptions()`:

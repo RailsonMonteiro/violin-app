@@ -296,6 +296,7 @@ import {
 } from "@/config/Api";
 import Snackbar from "@helpers/Snackbar";
 import { fetchWithTimeout } from "@/helpers/Http";
+import { textoDoStatusDeAtualizacao } from "@/helpers/UpdaterStatus";
 import Telemetry from "@/helpers/Telemetry";
 
 interface AppUpdateState {
@@ -303,7 +304,18 @@ interface AppUpdateState {
   version: string | null;
   progress: number;
   newVersion: string | null;
+  /** Texto cru: o main já não preenche (vira categoria + detalhe). Fica no tipo
+   *  porque o payload mais antigo de uma janela pode ainda trazê-lo. */
   error: string | null;
+  /**
+   * Categoria da falha: "network" | "http" | "unknown". Decide o texto.
+   *
+   * `string` porque é o que chega pelo IPC, sem tipo do outro lado — quem
+   * garante o conjunto de valores é o main, em `_categoriaDeErro`.
+   */
+  errorKind?: string | null;
+  /** Detalhe técnico, só para diagnóstico — nunca exibido. */
+  errorDetail?: string | null;
   packagePath?: string | null;
   installRequiresElevation?: boolean;
 }
@@ -410,24 +422,12 @@ const dbHasUpdate = computed<boolean>(
 
 const appVersion = computed<string>(() => appUpdate.value.version || Platform.api?.version || "?");
 
-const appUpdateStatusText = computed<string>(() => {
-  switch (appUpdate.value.status) {
-    case "checking":
-      return t("options.updates.app_checking");
-    case "available":
-      return t("options.updates.app_available", { version: appUpdate.value.newVersion });
-    case "not-available":
-      return t("options.updates.app_up_to_date");
-    case "downloading":
-      return t("options.updates.app_downloading");
-    case "downloaded":
-      return t("options.updates.app_downloaded");
-    case "error":
-      return appUpdate.value.error || t("options.updates.app_error");
-    default:
-      return t("options.updates.app_idle");
-  }
-});
+/*
+ * A tabela de status vive em `helpers/UpdaterStatus.ts`: ela decide o texto a
+ * partir da CATEGORIA do erro, e o `error` cru — que era o que aparecia na tela
+ * — não entra na conta.
+ */
+const appUpdateStatusText = computed<string>(() => textoDoStatusDeAtualizacao(appUpdate.value, t));
 
 const dbUpdateStatusText = computed<string>(() => {
   if (dbCacheCleared.value) return t("options.updates.cache_cleared");
@@ -534,7 +534,11 @@ async function openPackageFile(): Promise<void> {
   try {
     const res = await Platform.updater.openPackage();
     if (res && !res.ok) {
-      $alert.error({ text: res.error || t("options.updates.app_error") });
+      /* Mesmo critério da linha de status: rede tem texto próprio, o resto é a
+         mensagem genérica. O `error` cru não é exibido. */
+      $alert.error({
+        text: textoDoStatusDeAtualizacao({ status: "error", errorKind: res.errorKind }, t),
+      });
     }
   } catch (e) {
     console.error("[Atualizações] openPackage:", e);
