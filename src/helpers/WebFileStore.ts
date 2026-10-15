@@ -12,7 +12,7 @@
  * @category helper-puro — Sem APIs Vue; usa Cache Storage e fetch.
  */
 import { createAdaptiveConcurrency } from "@root/electron/main/download/adaptiveConcurrency.mjs";
-import { API_URL } from "@/config/Api";
+import { API_URL, API_URL_FILES, LEGACY_MEDIA_PREFIXES, MEDIA_URL } from "@/config/Api";
 import { fetchWithTimeout, NET_TIMEOUT } from "@/helpers/Http";
 import { currentUrlOfLegacyMedia, resolveMediaReference } from "@/helpers/MediaUrl";
 
@@ -80,6 +80,25 @@ function urlFor(remote: string): string | null {
   return resolveMediaReference(remote)?.url ?? null;
 }
 
+/** O download recebe a URL do catálogo; o scan e a remoção recebem o caminho relativo. */
+function cacheUrlsFor(remote: string): string[] {
+  const ref = resolveMediaReference(remote);
+  if (!ref) return [];
+  const roots = [MEDIA_URL, API_URL_FILES, ...LEGACY_MEDIA_PREFIXES].filter(Boolean).map((root) => root.replace(/\/+$/, ""));
+  const known = !/^https?:\/\//i.test(remote) || roots.some((root) => ref.url.startsWith(`${root}/`));
+  if (!known) return [ref.url];
+  const query = new URL(ref.url).search;
+  return [...new Set([ref.url, ...roots.map((root) => new URL(`${root}${ref.relativePath}${query}`).href)])];
+}
+
+async function cachedResponse(remote: string, store: Record<string, Cache>): Promise<Response | undefined> {
+  for (const url of cacheUrlsFor(remote)) {
+    const response = await store[cacheNameFor(url)].match(url, { ignoreVary: true });
+    if (response) return response;
+  }
+  return undefined;
+}
+
 async function openCaches(): Promise<Record<string, Cache>> {
   const [audio, images] = await Promise.all([caches.open(AUDIO_CACHE), caches.open(IMAGE_CACHE)]);
   return { [AUDIO_CACHE]: audio, [IMAGE_CACHE]: images };
@@ -94,7 +113,7 @@ function discardResponseBody(response: Response | null | undefined): void {
 }
 
 async function isCached(url: string, store: Record<string, Cache>): Promise<boolean> {
-  const response = await store[cacheNameFor(url)].match(url, { ignoreVary: true });
+  const response = await cachedResponse(url, store);
   discardResponseBody(response);
   return Boolean(response);
 }
@@ -440,7 +459,9 @@ export const webStorage = {
       await Promise.all(
         remotes.slice(i, i + STORAGE_BATCH).map(async (remote) => {
           const url = urlFor(remote);
-          if (url) await store[cacheNameFor(url)].delete(url, { ignoreVary: true });
+          if (url) for (const candidate of cacheUrlsFor(url)) {
+            await store[cacheNameFor(candidate)].delete(candidate, { ignoreVary: true });
+          }
         })
       );
     }
@@ -457,7 +478,7 @@ export const webStorage = {
     let count = 0;
     for (const remote of remotes) {
       const url = urlFor(remote);
-      const hit = url ? await store[cacheNameFor(url)].match(url, { ignoreVary: true }) : null;
+      const hit = url ? await cachedResponse(url, store) : null;
       if (!hit) continue;
       count++;
       bytes += await responseSize(hit);

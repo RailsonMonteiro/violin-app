@@ -120,6 +120,16 @@ describe("migração das chaves antigas do /file", () => {
 });
 
 describe("WebFileStore", () => {
+  it("reconhece após o download as URLs públicas do catálogo ao conferir pelos caminhos relativos", async () => {
+    const remote = "/musics/pt/A/one.opus";
+    const remoteUrl = `https://files.louvorja.com.br${remote}`;
+    expect(await run([{ remote, remoteUrl }] as typeof files)).toEqual({ downloaded: 1, failed: 0 });
+    expect(await webStorage.checkLocal([remote])).toEqual({ [remote]: "own" });
+    expect(await webStorage.sizeOfPaths([remote])).toEqual({ bytes: 11, count: 1 });
+    expect(await webDownload.start([{ remote, remoteUrl }])).toEqual({ queued: 0 });
+    await webStorage.removeFiles([remote]);
+    expect(await webStorage.checkLocal([remote])).toEqual({ [remote]: false });
+  });
   it("separa áudio (inclui .opus) de imagem nos caches do service worker", async () => {
     const result = await run();
     expect(result).toEqual({ downloaded: 3, failed: 0 });
@@ -296,7 +306,8 @@ describe("WebFileStore", () => {
 
     await webStorage.removeFiles(remotes);
 
-    expect(audio.delete).toHaveBeenCalledTimes(1000);
+    // Remove as quatro chaves equivalentes sem elevar a concorrência.
+    expect(audio.delete).toHaveBeenCalledTimes(4000);
     expect(peak).toBeLessThanOrEqual(4);
   });
 
