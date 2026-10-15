@@ -23,6 +23,12 @@ describe("rota do service worker para o banco", () => {
     expect(pattern.test(`${DB}/configuracoes`)).toBe(true);
   });
 
+  it("pedidos explicitamente novos não passam pelo stale-while-revalidate", () => {
+    expect(pattern.test(`${DB}/pt_musics?fresh=1&_=123`)).toBe(false);
+    expect(pattern.test(`${DB}/pt_musics?_=123&fresh=1`)).toBe(false);
+    expect(pattern.test(`${DB}/pt_musics?fresh=10`)).toBe(true);
+  });
+
   it("não casa outras origens", () => {
     expect(pattern.test("https://outra.test/json_db/pt_musics")).toBe(false);
   });

@@ -85,6 +85,17 @@ async function importDatabase() {
   return mod.default;
 }
 
+it("recupera pela rede quando a leitura do IndexedDB falha", async () => {
+  const database = await importDatabase();
+  const { default: idb } = await import("@/helpers/IndexedDB");
+  idb.get.mockRejectedValueOnce(
+    new DOMException("Internal error opening backing store", "UnknownError")
+  );
+  fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+  expect(await database.get("recovery_test", { silent: true })).toEqual({ ok: true });
+  expect(fetchMock).toHaveBeenCalledOnce();
+});
+
 beforeEach(() => {
   setActivePinia(createPinia());
   tables.clear();
@@ -659,6 +670,53 @@ describe("Database — falha sem nenhum cache: o que aparece na tela", () => {
 });
 
 describe("Database — publicação de bundle", () => {
+  it("uma resposta iniciada antes do bundle não sobrescreve o catálogo novo", async () => {
+    const db = await importDatabase();
+    let finish;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    const oldRequest = db.get("pt_musics", { fresh: true });
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    await db.seedBundleAtomic(new Map([["pt_musics", [{ id_music: 2, name: "nova" }]]]), {
+      id: "marker",
+    });
+    finish(jsonResponse([{ id_music: 1, name: "antiga" }]));
+    expect(await oldRequest).toEqual([{ id_music: 2, name: "nova" }]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((await db.getLocal("pt_musics")).map((item) => item.name)).toEqual(["nova"]);
+    expect(dataIds("musics", "pt_musics")).toEqual(["2"]);
+  });
+
+  it("aguarda uma escrita de rede em curso antes de publicar o bundle", async () => {
+    const db = await importDatabase();
+    const { default: idb } = await import("@/helpers/IndexedDB");
+    let finish;
+    idb.putMany.mockImplementationOnce(async (table, rows, deleteIds = []) => {
+      await new Promise((resolve) => {
+        finish = resolve;
+      });
+      for (const id of deleteIds) tbl(table).delete(id);
+      for (const row of rows) tbl(table).set(row.id, row);
+    });
+    fetchMock.mockResolvedValue(jsonResponse([{ id_music: 1, name: "antiga" }]));
+    await db.get("pt_musics", { fresh: true });
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    const installation = db.seedBundleAtomic(
+      new Map([["pt_musics", [{ id_music: 2, name: "nova" }]]]),
+      { id: "marker" }
+    );
+    await Promise.resolve();
+    expect(applyCatalogBatch).not.toHaveBeenCalled();
+    finish();
+    await installation;
+    expect((await db.getLocal("pt_musics")).map((item) => item.name)).toEqual(["nova"]);
+    expect(dataIds("musics", "pt_musics")).toEqual(["2"]);
+  });
+
   it("troca somente o dataset publicado e descarta a cópia antiga em memória", async () => {
     const db = await importDatabase();
     await db.seed("pt_musics", [{ id_music: 1, name: "antiga" }]);

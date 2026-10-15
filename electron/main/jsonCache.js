@@ -122,12 +122,12 @@ const _inflight = new Map();
  * @param {object} headers        Headers para a requisição (Api-Token, etc.)
  * @returns {Promise<{body: Buffer|null, contentType: string, fromCache: boolean, status: number}>}
  */
-async function fetchJson(relPath, remoteBaseUrl, headers = {}) {
+async function fetchJson(relPath, remoteBaseUrl, headers = {}, { fresh = false } = {}) {
   let localPath = safeLocalPath(relPath);
-  const requestKey = localPath;
+  const requestKey = `${localPath}|${fresh ? "fresh" : "cached"}`;
 
   // Cache válido — retornar do disco (sem deduplicação necessária)
-  if (await isCacheValid(localPath)) {
+  if (!fresh && await isCacheValid(localPath)) {
     console.log(`[jsonCache] HIT ${relPath}`);
     return {
       body: await fs.readFile(localPath),
@@ -138,8 +138,8 @@ async function fetchJson(relPath, remoteBaseUrl, headers = {}) {
   }
 
   // Deduplicação: se já tem request em andamento para este path, reutiliza
-  if (_inflight.has(localPath)) {
-    return _inflight.get(localPath);
+  if (_inflight.has(requestKey)) {
+    return _inflight.get(requestKey);
   }
 
   const promise = (async () => {
@@ -147,7 +147,7 @@ async function fetchJson(relPath, remoteBaseUrl, headers = {}) {
     try {
       // Remover barra inicial duplicada entre base e relPath
       const sep = relPath.startsWith("/") ? "" : "/";
-      const remoteUrl = remoteBaseUrl + sep + relPath;
+      const remoteUrl = remoteBaseUrl + sep + relPath + (fresh ? `?_=${Date.now()}` : "");
       console.log(`[jsonCache] MISS ${relPath} — baixando: ${remoteUrl}`);
       const response = await httpRequest(remoteUrl, headers);
       localPath = safeLocalPath(relPath);
@@ -268,37 +268,30 @@ async function clearCache() {
 const VERSION_MARKER = ".app-version";
 
 /**
- * Esvazia o cache de JSON quando o app foi atualizado.
- *
- * As respostas guardadas aqui trazem os endereços de mídia que o servidor
- * entregava na época. Quando eles mudam (domínio de arquivos, formato), o cache
- * continuaria servindo o endereço velho por 24 h, ou para sempre se o aparelho
- * ficar offline. Cada versão nova começa limpa e baixa de novo o que usar.
- *
- * @param {string} appVersion
- * @returns {Promise<{ purged: boolean, removed: number }>}
+ * Expira os JSONs ao atualizar o app, preservando-os como fallback offline.
+ * A próxima leitura tenta a rede antes do disco, sem apagar um banco utilizável.
  */
-async function purgeOnAppUpdate(appVersion) {
+async function expireOnAppUpdate(appVersion) {
   const dir = CACHE_DIR();
   const marker = path.join(dir, VERSION_MARKER);
   let stored = null;
-  try {
-    stored = (await fs.readFile(marker, "utf8")).trim();
-  } catch {
-    stored = null;
-  }
-  if (stored === appVersion) return { purged: false, removed: 0 };
-
+  try { stored = (await fs.readFile(marker, "utf8")).trim(); } catch { /* primeira versão */ }
+  if (stored === appVersion) return { expired: 0 };
   await fs.ensureDir(dir);
-  let removed = 0;
-  for (const name of await fs.readdir(dir)) {
-    if (name === VERSION_MARKER) continue;
-    await fs.remove(path.join(dir, name));
-    removed += 1;
+  let expired = 0;
+  async function expireDirectory(directory) {
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+      const file = path.join(directory, entry.name);
+      if (entry.isDirectory()) await expireDirectory(file);
+      else if (entry.isFile() && entry.name.endsWith(".json")) {
+        await fs.utimes(file, new Date(0), new Date(0));
+        expired++;
+      }
+    }
   }
+  await expireDirectory(dir);
   await fs.writeFile(marker, String(appVersion));
-  if (removed > 0) console.log(`[jsonCache] Cache limpo na atualização para ${appVersion}: ${removed} itens`);
-  return { purged: removed > 0, removed };
+  return { expired };
 }
 
 /**
@@ -309,4 +302,4 @@ function dir() {
   return CACHE_DIR();
 }
 
-module.exports = { fetchJson, clearCache, dir, safeLocalPath, purgeOnAppUpdate };
+module.exports = { fetchJson, clearCache, dir, safeLocalPath, expireOnAppUpdate };

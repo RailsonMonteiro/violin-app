@@ -10,6 +10,8 @@ const h = vi.hoisted(() => ({
   platform: { isDesktop: true, storage: undefined as unknown },
   hasBundleMarker: vi.fn(),
   needsRefresh: vi.fn(),
+  installedVersion: vi.fn(),
+  remoteConfig: vi.fn(),
   fullInstall: vi.fn(),
   bibleIsInstalled: vi.fn(),
   bibleInstall: vi.fn(),
@@ -26,6 +28,8 @@ vi.mock("@/helpers/BundleInstaller", () => ({
   default: {
     hasBundleMarker: h.hasBundleMarker,
     catalogNeedsRefreshForApp: h.needsRefresh,
+    getInstalledBundleVersion: h.installedVersion,
+    fetchRemoteConfig: h.remoteConfig,
     install: h.fullInstall,
   },
 }));
@@ -87,6 +91,8 @@ beforeEach(() => {
     fn.mockReset();
   }
   h.needsRefresh.mockResolvedValue(false);
+  h.installedVersion.mockReset().mockResolvedValue(185);
+  h.remoteConfig.mockReset().mockResolvedValue({ version_number: 185 });
   h.dbGet.mockReset();
   h.dbGetLocal.mockReset();
   h.storedIds.mockReset();
@@ -95,6 +101,7 @@ beforeEach(() => {
   h.bibleIsInstalled.mockResolvedValue(false);
   h.fullInstall.mockImplementation(async () => {
     h.events.push("bundle");
+    h.hasBundleMarker.mockResolvedValue(true);
   });
   h.bibleInstall.mockResolvedValue(undefined);
   h.dbGet.mockImplementation(async (key: string) => {
@@ -305,12 +312,10 @@ describe("lista de arquivos se recupera sozinha", () => {
     const sync = await mountSync();
     vi.useFakeTimers();
 
-    const outcome = sync
-      .collectFiles(new Set([7]), false, [])
-      .then(
-        () => "ok",
-        (error: Error) => error.message
-      );
+    const outcome = sync.collectFiles(new Set([7]), false, []).then(
+      () => "ok",
+      (error: Error) => error.message
+    );
     await vi.advanceTimersByTimeAsync(400_000);
 
     expect(await outcome).toBe("collect_stalled");
@@ -347,6 +352,33 @@ describe("lista de arquivos se recupera sozinha", () => {
 });
 
 describe("catálogo renovado a cada versão do app", () => {
+  it("atualiza banco publicado sem trocar a versão do app, uma vez, usando a versão real do pacote", async () => {
+    h.hasBundleMarker.mockResolvedValue(true);
+    h.remoteConfig.mockResolvedValue({ version_number: 186 });
+    const sync = await mountSync();
+    expect(await sync.refreshCatalogAfterUpdate()).toBe(true);
+    expect(h.fullInstall).toHaveBeenCalledWith(
+      expect.objectContaining({ catalogOnly: true, version: 186 })
+    );
+    expect(await sync.refreshCatalogAfterUpdate()).toBe(false);
+    expect(h.remoteConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it("não troca o catálogo por uma versão anterior devolvida pelo fallback", async () => {
+    h.hasBundleMarker.mockResolvedValue(true);
+    h.remoteConfig.mockResolvedValue({ version_number: 184 });
+    const sync = await mountSync();
+    expect(await sync.refreshCatalogAfterUpdate()).toBe(false);
+    expect(h.fullInstall).not.toHaveBeenCalled();
+  });
+
+  it("reinstala se o marcador for removido depois de uma instalação na mesma sessão", async () => {
+    const sync = await mountSync();
+    await sync.ensureCatalogBundle();
+    h.hasBundleMarker.mockResolvedValue(false);
+    await sync.ensureCatalogBundle();
+    expect(h.fullInstall).toHaveBeenCalledTimes(2);
+  });
   it("catálogo de outra versão: reinstala o pacote de catálogo por cima, sem a Bíblia", async () => {
     h.needsRefresh.mockResolvedValue(true);
     const sync = await mountSync();

@@ -274,6 +274,8 @@ import { localeTag } from "@/helpers/DateTime";
 import Platform from "@/helpers/Platform";
 import $alert from "@/helpers/Alert";
 import $database from "@/helpers/Database";
+import BundleInstaller from "@/helpers/BundleInstaller";
+import { failureDetails } from "@/helpers/ReliabilityDiagnostics";
 import $userdata from "@/helpers/UserData";
 import DatabaseBackup, { type BackupProgress } from "@/helpers/DatabaseBackup";
 import {
@@ -342,6 +344,7 @@ let _lastAppProgressBucket = -1;
 const dbChecking = ref<boolean>(false);
 const dbStatus = ref<UpdateStatus>("idle");
 const dbCurrentConfig = ref<DbConfig | null>(null);
+const dbInstalledVersion = ref<number | null>(null);
 const dbLatestConfig = ref<DbConfig | null>(null);
 const dbCacheCleared = ref<boolean>(false);
 const lastDbCheck = ref<string | null>(null);
@@ -416,8 +419,7 @@ const dbBackupProgressDetail = computed<string>(() => {
 const dbHasUpdate = computed<boolean>(
   () =>
     !!dbLatestConfig.value &&
-    (!dbCurrentConfig.value ||
-      dbLatestConfig.value.version_number > dbCurrentConfig.value.version_number)
+    (dbInstalledVersion.value === null || dbLatestConfig.value.version > dbInstalledVersion.value)
 );
 
 const appVersion = computed<string>(() => appUpdate.value.version || Platform.api?.version || "?");
@@ -625,8 +627,10 @@ async function checkDbUpdate(): Promise<void> {
     dbStatus.value = dbHasUpdate.value ? "available" : "ok";
     lastDbCheck.value = new Date().toISOString();
     $userdata.set(KEYS.OPTIONS.LAST_DB_CHECK, lastDbCheck.value);
-  } catch {
+  } catch (error) {
     dbStatus.value = "error";
+    Telemetry.captureException(error, { source: "database_update_check", stage: "config" });
+    Telemetry.track("database_update_check_failed", failureDetails(error));
   } finally {
     dbChecking.value = false;
   }
@@ -636,9 +640,19 @@ async function checkDbUpdate(): Promise<void> {
 // invalidava o `config`: a tela passava a dizer "Banco atualizado" e as
 // músicas, hinários e álbuns continuavam na versão de antes.
 async function applyDbUpdate(): Promise<void> {
-  const ok = await sync.downloadBundle({ catalogOnly: true });
+  const ok = await sync.downloadBundle({
+    catalogOnly: true,
+    version: dbLatestConfig.value?.version,
+  });
   if (!ok) {
-    Snackbar.warning(t("startup_check.bundle_cancel"));
+    Snackbar.warning(
+      dbBundleTask.value?.detail ||
+        t(
+          dbBundleTask.value?.status === "cancelled"
+            ? "startup_check.bundle_cancel"
+            : "startup_check.bundle_error"
+        )
+    );
     return;
   }
   dbCacheCleared.value = true;
@@ -790,7 +804,11 @@ async function reinstallDatabase(): Promise<void> {
 
 async function loadCurrentDbVersion(): Promise<void> {
   try {
-    const data = await $database.get<DbConfig>("config", { silent: true });
+    // Consultar config remoto não prova que o catálogo foi instalado.
+    dbInstalledVersion.value = await BundleInstaller.getInstalledBundleVersion({
+      allowLegacyConfig: false,
+    });
+    const data = await $database.getLocal<DbConfig>("config");
     dbCurrentConfig.value = isValidDbConfig(data) ? data : null;
   } catch {
     dbCurrentConfig.value = null;

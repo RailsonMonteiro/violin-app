@@ -174,6 +174,12 @@ function autoInstallCatalog(): void {
 }
 
 watch([shellOnline, appInstalled], autoInstallCatalog);
+// Um app que ficou aberto/offline por dias também verifica ao voltar ao uso.
+const checkCatalogOnForeground = () => {
+  if (document.visibilityState === "visible") autoInstallCatalog();
+};
+onMounted(() => document.addEventListener("visibilitychange", checkCatalogOnForeground));
+onBeforeUnmount(() => document.removeEventListener("visibilitychange", checkCatalogOnForeground));
 
 const showDesktopDownload = computed(() => {
   return (

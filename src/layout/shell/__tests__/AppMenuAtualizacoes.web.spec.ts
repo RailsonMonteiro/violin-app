@@ -18,6 +18,7 @@ const probe = vi.hoisted(() => ({
   invalidate: vi.fn(),
   invalidateAll: vi.fn(),
   dbGet: vi.fn(),
+  installed: vi.fn(),
   fetchWithTimeout: vi.fn(),
   snackbarWarning: vi.fn(),
   pwaCheck: vi.fn(),
@@ -51,9 +52,13 @@ vi.mock("@/composables/useBackgroundTasks", () => ({
 vi.mock("@/helpers/Database", () => ({
   default: {
     get: (...args: unknown[]) => probe.dbGet(...args),
+    getLocal: (...args: unknown[]) => probe.dbGet(...args),
     invalidate: (...args: unknown[]) => probe.invalidate(...args),
     invalidateAll: (...args: unknown[]) => probe.invalidateAll(...args),
   },
+}));
+vi.mock("@/helpers/BundleInstaller", () => ({
+  default: { getInstalledBundleVersion: probe.installed },
 }));
 vi.mock("@/helpers/Http", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/helpers/Http")>()),
@@ -102,9 +107,7 @@ async function montar() {
 }
 
 function secao(w: VueWrapper, titulo: string) {
-  const found = w
-    .findAll("section.opt-section")
-    .find((s) => s.get("h3").text().includes(titulo));
+  const found = w.findAll("section.opt-section").find((s) => s.get("h3").text().includes(titulo));
   if (!found) throw new Error(`seção "${titulo}" não encontrada`);
   return found;
 }
@@ -119,11 +122,15 @@ beforeEach(() => {
   setActivePinia(createPinia());
   $appdata.set(KEYS.SHELL.IS_ONLINE, true);
   sessionStorage.clear();
-  sessionStorage.setItem("slide_editor_song_v2", JSON.stringify({ slides: [{ text: "rascunho" }] }));
+  sessionStorage.setItem(
+    "slide_editor_song_v2",
+    JSON.stringify({ slides: [{ text: "rascunho" }] })
+  );
   probe.downloadBundle.mockReset().mockResolvedValue(true);
   probe.invalidate.mockReset();
   probe.invalidateAll.mockReset().mockResolvedValue(undefined);
   probe.dbGet.mockReset().mockResolvedValue(dbConfig(100));
+  probe.installed.mockReset().mockResolvedValue(100);
   probe.fetchWithTimeout.mockReset().mockResolvedValue(configResponse(101));
   probe.snackbarWarning.mockReset();
   probe.pwaCheck.mockReset();
@@ -141,6 +148,14 @@ afterEach(() => {
 });
 
 describe("Procurar Atualizações — banco no web/PWA", () => {
+  it("config consultado recentemente não faz o catálogo antigo parecer instalado", async () => {
+    probe.dbGet.mockResolvedValue(dbConfig(101));
+    probe.installed.mockResolvedValue(100);
+    const w = await montar();
+    expect(secao(w, "Banco de dados").text()).toContain(
+      "Nova versão v101 - 101 do banco disponível"
+    );
+  });
   it("pergunta a versão à rede, sem aceitar resposta guardada", async () => {
     await montar();
 
@@ -158,7 +173,7 @@ describe("Procurar Atualizações — banco no web/PWA", () => {
     await botao(db, "Atualizar agora").trigger("click");
     await vi.advanceTimersByTimeAsync(1000);
 
-    expect(probe.downloadBundle).toHaveBeenCalledWith({ catalogOnly: true });
+    expect(probe.downloadBundle).toHaveBeenCalledWith({ catalogOnly: true, version: 101 });
     expect(probe.invalidate).not.toHaveBeenCalledWith("config");
     expect(probe.reload).toHaveBeenCalledOnce();
   });

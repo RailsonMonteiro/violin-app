@@ -334,7 +334,8 @@ function handle() {
           const result = await jsonCache.fetchJson(
             pathname,
             _config.databaseUrl,
-            headers
+            headers,
+            { fresh: url.searchParams.get("fresh") === "1" || url.searchParams.has("_") || pathname === "/config" }
           );
 
           if (result.status === 404) {

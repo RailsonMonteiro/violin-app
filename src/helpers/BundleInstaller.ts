@@ -11,6 +11,7 @@ import { DB_TABLE } from "@/constants/DbTables";
 import type { BundleProgress } from "@/types/Database";
 import { fetchWithTimeout, NET_TIMEOUT } from "@/helpers/Http";
 import Telemetry from "@/helpers/Telemetry";
+import { failureDetails, reportReliabilityFailure } from "@/helpers/ReliabilityDiagnostics";
 import { extractBundleEntries } from "@/helpers/BundleExtraction";
 import {
   API_URL,
@@ -309,7 +310,8 @@ export default {
       Telemetry.track("database_bundle_install_failed", {
         version: version ?? null,
         duration_ms: durationMs,
-        reason: error instanceof Error ? error.name : "unknown",
+        ...failureDetails(error),
+        bundle_kind: opts.catalogOnly ? "catalog" : "full",
         stage,
         aborted: signal?.aborted === true,
       });
@@ -363,7 +365,8 @@ export default {
     try {
       const row = await $idb.get<{ data?: BundleMarker }>(DB_TABLE.CACHE, BUNDLE_MARKER_KEY);
       const marker = row?.data;
-      if (!marker || marker.validation_revision !== BUNDLE_VALIDATION_REVISION) return false;
+      if (!marker) return false;
+      if (marker.validation_revision !== BUNDLE_VALIDATION_REVISION) return true;
       return marker.app_version !== packageJson.version;
     } catch {
       return false;
@@ -371,7 +374,7 @@ export default {
   },
 
   /** Retorna a versão do último bundle instalado, sem buscar na rede. */
-  async getInstalledBundleVersion(): Promise<number | null> {
+  async getInstalledBundleVersion({ allowLegacyConfig = true } = {}): Promise<number | null> {
     try {
       const marker = await $idb.get<{
         data?: { version_number?: unknown; source_version?: unknown };
@@ -385,6 +388,7 @@ export default {
         return markerVersion;
       }
 
+      if (!allowLegacyConfig) return null;
       // Instalações anteriores ao marker ainda têm o dataset `config` no
       // cache normalizado/legado. Ler diretamente o IDB evita disparar uma
       // requisição durante a decisão de boot offline.
@@ -432,14 +436,21 @@ export default {
         cache: "no-store",
         source,
       });
-      if (!res.ok) return null;
-      return parseRemoteVersion(await res.json());
+      if (!res.ok) throw new Error(`Configuração do banco: HTTP ${res.status}`);
+      const config = parseRemoteVersion(await res.json());
+      if (!config) throw new Error("Configuração do banco sem versão válida");
+      return config;
     };
 
     try {
       const primary = await fetchConfig(`${API_URL_DB}/config`, API_TOKEN, "bundle-config");
       if (primary) return primary;
-    } catch {
+    } catch (error) {
+      if (!API_URL_FALLBACK)
+        reportReliabilityFailure("database_update_check_failed", error, {
+          stage: "config",
+          endpoint: "primary",
+        });
       // Abaixo o fallback também é tentado quando a conexão lança (timeout,
       // DNS), não apenas quando a API respondeu com HTTP ruim.
     }
@@ -451,7 +462,11 @@ export default {
         API_URL_FALLBACK_TOKEN,
         "bundle-config-fallback"
       );
-    } catch {
+    } catch (error) {
+      reportReliabilityFailure("database_update_check_failed", error, {
+        stage: "config",
+        endpoint: "fallback",
+      });
       return null;
     }
   },

@@ -1177,12 +1177,12 @@ app.whenReady().then(async () => {
   splash.show(_userDataMain);
   await legacyDataMigration;
 
-  // Atualizou o app: o cache de JSON do banco recomeça limpo, para não servir os
-  // endereços de mídia da versão anterior. Falha aqui não pode travar o boot.
+  // Atualizou o app: tenta renovar os JSONs, mas conserva a cópia offline.
+  // Falha aqui não pode travar o boot.
   try {
-    await jsonCache.purgeOnAppUpdate(app.getVersion());
+    await jsonCache.expireOnAppUpdate(app.getVersion());
   } catch (e) {
-    console.warn("[main] Falha ao limpar o cache de JSON na atualização:", e?.message || e);
+    console.warn("[main] Falha ao expirar o cache de JSON na atualização:", e?.message || e);
   }
 
   // A identificação de monitores e a limpeza dos caches de desenvolvimento

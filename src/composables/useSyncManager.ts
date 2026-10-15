@@ -18,6 +18,7 @@ import { formatBackgroundTaskDetail } from "@/helpers/BackgroundTaskDetail";
 import type { Music } from "@/types/Music";
 import type { BibleBook } from "@/types/Bible";
 import { resolveMediaReference } from "@/helpers/MediaUrl";
+import { reportReliabilityEvent, reportReliabilityFailure } from "@/helpers/ReliabilityDiagnostics";
 
 interface FileEntry {
   remote: string;
@@ -138,9 +139,12 @@ let activeBundleAbort: AbortController | null = null;
 let bundleReady = false;
 let bundleEnsurePromise: Promise<boolean> | null = null;
 let bundleFailedAt = 0;
-let catalogReady = false;
 let catalogEnsurePromise: Promise<boolean> | null = null;
 let catalogFailedAt = 0;
+let catalogRefreshPromise: Promise<boolean> | null = null;
+let catalogRefreshFailedAt = 0;
+let catalogCheckedAt = 0;
+const CATALOG_CHECK_INTERVAL_MS = 15 * 60_000;
 
 // Depois de uma falha, reabrir a tela bíblica não recomeça o download de 25 MB
 // na hora: numa rede que soluça, cada abertura seria uma nova tentativa do zero.
@@ -1012,10 +1016,7 @@ export function useSyncManager() {
   async function collectMusicFiles(
     musicIds: number[],
     files: Map<string, FileEntry>,
-    {
-      localOnly = false,
-      onBatch,
-    }: { localOnly?: boolean; onBatch?: (done: number) => void } = {}
+    { localOnly = false, onBatch }: { localOnly?: boolean; onBatch?: (done: number) => void } = {}
   ): Promise<void> {
     // `scanCache` pode chamar esta função para até três álbuns ao mesmo tempo.
     // Um lote fixo de quatro limita a rajada de leitura e persistência no IDB
@@ -1174,31 +1175,42 @@ export function useSyncManager() {
 
     // Escuta conclusão da fila
     track(
-      Platform.download.onQueueDone((result: { downloaded?: number; failed?: number; error?: string }) => {
-        downloading.value = false;
-        const reportedFailed = typeof result?.failed === "number" &&
-          Number.isSafeInteger(result.failed) && result.failed > 0 ? result.failed : 0;
-        const failed = Math.max(downloadProgress.value.failed, reportedFailed);
-        downloadFailedCount.value = Math.max(downloadFailedCount.value, failed);
-        downloadProgress.value = {
-          ...downloadProgress.value,
-          failed: Math.max(downloadProgress.value.failed, failed),
-        };
-        if (failed > 0) {
-          downloadCompletedMsg.value = t("options.collections_download.failed", { n: failed });
-          bgTasks.updateTask("sync-collections", { status: "error", completedAt: Date.now() });
-          const code = typeof result?.error === "string" && /^download_worker_[a-z_]{1,48}$/.test(result.error)
-            ? result.error : "file_error";
-          // Telemetria é opcional no boot e nunca atrasa nem substitui o aviso
-          // funcional de erro, inclusive quando o renderer ainda está montando.
-          void import("@/helpers/Telemetry").then(({ default: Telemetry }) => {
-            Telemetry.track("download_queue_failed", { code, failed_count: failed });
-          }).catch(() => {});
-        } else {
-          bgTasks.completeTask("sync-collections");
+      Platform.download.onQueueDone(
+        (result: { downloaded?: number; failed?: number; error?: string }) => {
+          downloading.value = false;
+          const reportedFailed =
+            typeof result?.failed === "number" &&
+            Number.isSafeInteger(result.failed) &&
+            result.failed > 0
+              ? result.failed
+              : 0;
+          const failed = Math.max(downloadProgress.value.failed, reportedFailed);
+          downloadFailedCount.value = Math.max(downloadFailedCount.value, failed);
+          downloadProgress.value = {
+            ...downloadProgress.value,
+            failed: Math.max(downloadProgress.value.failed, failed),
+          };
+          if (failed > 0) {
+            downloadCompletedMsg.value = t("options.collections_download.failed", { n: failed });
+            bgTasks.updateTask("sync-collections", { status: "error", completedAt: Date.now() });
+            const code =
+              typeof result?.error === "string" &&
+              /^download_worker_[a-z_]{1,48}$/.test(result.error)
+                ? result.error
+                : "file_error";
+            // Telemetria é opcional no boot e nunca atrasa nem substitui o aviso
+            // funcional de erro, inclusive quando o renderer ainda está montando.
+            void import("@/helpers/Telemetry")
+              .then(({ default: Telemetry }) => {
+                Telemetry.track("download_queue_failed", { code, failed_count: failed });
+              })
+              .catch(() => {});
+          } else {
+            bgTasks.completeTask("sync-collections");
+          }
+          releaseListeners();
         }
-        releaseListeners();
-      })
+      )
     );
     track(
       Platform.download.onQueueCancelled(() => {
@@ -1371,7 +1383,6 @@ export function useSyncManager() {
         bundleReady = true;
         bumpBibleRevision();
       }
-      if (!opts.bibleOnly) catalogReady = true;
       return true;
     } catch (e) {
       if (signal.aborted) {
@@ -1442,9 +1453,6 @@ export function useSyncManager() {
    * música — ~2 mil requisições por instalação se o catálogo não estiver no
    * disco. O pacote de catálogo traz esses dados, sem capítulos bíblicos, em um único GET.
    */
-  let catalogRefreshPromise: Promise<boolean> | null = null;
-  let catalogRefreshFailedAt = 0;
-
   /**
    * Renova o catálogo uma vez por versão do app: baixa o pacote de catálogo (um
    * GET, sem a Bíblia) e o grava por cima, de forma atômica. É o "reset" que
@@ -1454,12 +1462,47 @@ export function useSyncManager() {
   async function refreshCatalogAfterUpdate(): Promise<boolean> {
     if (catalogRefreshPromise) return catalogRefreshPromise;
     if (Date.now() - catalogRefreshFailedAt < BUNDLE_RETRY_COOLDOWN_MS) return false;
+    if (Date.now() - catalogCheckedAt < CATALOG_CHECK_INTERVAL_MS) return false;
 
     const pending = (async (): Promise<boolean> => {
-      if (!(await BundleInstaller.catalogNeedsRefreshForApp())) return false;
-      const installed = await downloadBundle({ catalogOnly: true, force: true });
-      if (!installed) catalogRefreshFailedAt = Date.now();
-      return installed;
+      try {
+        const appChanged = await BundleInstaller.catalogNeedsRefreshForApp();
+        let remoteVersion: number | undefined;
+        if (!appChanged) {
+          if (!(await BundleInstaller.hasBundleMarker())) return false;
+          const local = await BundleInstaller.getInstalledBundleVersion({
+            allowLegacyConfig: false,
+          });
+          const remote = await BundleInstaller.fetchRemoteConfig();
+          if (!remote) {
+            catalogRefreshFailedAt = Date.now();
+            return false;
+          }
+          remoteVersion = remote.source_version ?? remote.version_number;
+          reportReliabilityEvent("database_update_checked", {
+            installed_version: local,
+            remote_version: remoteVersion,
+          });
+          if (local !== null && remoteVersion <= local) {
+            catalogCheckedAt = Date.now();
+            return false;
+          }
+        }
+        const installed = await downloadBundle({
+          catalogOnly: true,
+          force: true,
+          ...(remoteVersion === undefined ? {} : { version: remoteVersion }),
+        });
+        if (!installed) catalogRefreshFailedAt = Date.now();
+        else catalogCheckedAt = Date.now();
+        return installed;
+      } catch (error) {
+        catalogRefreshFailedAt = Date.now();
+        reportReliabilityFailure("database_update_check_failed", error, {
+          stage: "catalog_refresh",
+        });
+        return false;
+      }
     })();
 
     catalogRefreshPromise = pending;
@@ -1471,13 +1514,11 @@ export function useSyncManager() {
   }
 
   async function ensureCatalogBundle(): Promise<boolean> {
-    if (catalogReady) return true;
     if (catalogEnsurePromise) return catalogEnsurePromise;
     if (Date.now() - catalogFailedAt < BUNDLE_RETRY_COOLDOWN_MS) return false;
 
     const pending = (async (): Promise<boolean> => {
       if (await BundleInstaller.hasBundleMarker()) {
-        catalogReady = true;
         return true;
       }
       const installed = await downloadBundle({ catalogOnly: true });
@@ -1500,9 +1541,7 @@ export function useSyncManager() {
    */
   async function hasCatalogForBulkRead(): Promise<boolean> {
     if (!Platform.storage?.checkLocal) return true;
-    if (catalogReady) return true;
     if (!(await BundleInstaller.hasBundleMarker())) return false;
-    catalogReady = true;
     return true;
   }
 

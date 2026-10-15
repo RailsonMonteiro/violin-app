@@ -11,7 +11,7 @@ function escapeRegex(str) {
 }
 
 function dbCachePattern(dbUrl) {
-  return new RegExp(`^${escapeRegex(dbUrl)}(?!/config(?:[?#]|$))`);
+  return new RegExp(`^${escapeRegex(dbUrl)}/(?!config(?:[?#]|$))(?![^#]*[?&]fresh=1(?:[&#]|$))`);
 }
 
 module.exports = { escapeRegex, dbCachePattern };

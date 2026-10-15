@@ -16,6 +16,7 @@ import { fetchWithTimeout, classifyNetworkError, isTransientFailure } from "@/he
 import $path from "@/helpers/Path";
 import $dev from "@/helpers/Dev";
 import $idb from "@/helpers/IndexedDB";
+import { reportReliabilityFailure } from "@/helpers/ReliabilityDiagnostics";
 import type { CatalogChange } from "@/helpers/IndexedDB";
 import { DB_TABLE } from "@/constants/DbTables";
 import {
@@ -184,6 +185,9 @@ function memorySet<T>(file: string, data: T): void {
  * cada um dispara o próprio download (o catálogo online tem ~5 MB).
  */
 const _inflight = new Map<string, Promise<unknown>>();
+const _networkWrites = new Set<Promise<void>>();
+let _catalogGeneration = 0;
+let _catalogInstalls = 0;
 
 function getVersion(): string {
   return import.meta.env.VITE_DB_VERSION || "";
@@ -541,7 +545,8 @@ async function writeRouted(file: string, data: unknown, r: Route | null): Promis
  * fica com quem chamou, para que cada um respeite o próprio `silent`.
  */
 function fetchAndStore<T>(file: string, fresh: boolean): Promise<T | null> {
-  const key = `${file}|${fresh ? 1 : 0}`;
+  const generation = _catalogGeneration;
+  const key = `${file}|${fresh ? 1 : 0}|${generation}`;
   const running = _inflight.get(key);
   if (running) {
     $dev.write("Reusando busca em andamento", file);
@@ -554,13 +559,14 @@ function fetchAndStore<T>(file: string, fresh: boolean): Promise<T | null> {
     const url = fetchUrlFor(file);
     const fallbackUrl = API_URL_FALLBACK ? url.replace(API_URL, API_URL_FALLBACK) : "";
     const cacheBuster = fresh
-      ? `?_=${Date.now()}`
+      ? `?fresh=1&_=${Date.now()}`
       : `?${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`;
     $dev.write("Abrindo DB", `${url}${cacheBuster}`);
     let response: Response;
     try {
       response = await fetchWithTimeout(`${url}${cacheBuster}`, {
         headers: apiTokenHeaders(API_TOKEN),
+        ...(fresh ? { cache: "no-store" as const } : {}),
         source: "database",
       });
     } catch (primaryError) {
@@ -571,6 +577,7 @@ function fetchAndStore<T>(file: string, fresh: boolean): Promise<T | null> {
       $dev.write("Fallback DB", `${fallbackUrl}${cacheBuster}`);
       response = await fetchWithTimeout(`${fallbackUrl}${cacheBuster}`, {
         headers: apiTokenHeaders(API_URL_FALLBACK_TOKEN),
+        ...(fresh ? { cache: "no-store" as const } : {}),
         source: "database-fallback",
       });
     }
@@ -581,6 +588,7 @@ function fetchAndStore<T>(file: string, fresh: boolean): Promise<T | null> {
       $dev.write("Fallback DB", `${fallbackUrl}${cacheBuster}`);
       response = await fetchWithTimeout(`${fallbackUrl}${cacheBuster}`, {
         headers: apiTokenHeaders(API_URL_FALLBACK_TOKEN),
+        ...(fresh ? { cache: "no-store" as const } : {}),
         source: "database-fallback",
       });
     }
@@ -615,13 +623,24 @@ function fetchAndStore<T>(file: string, fresh: boolean): Promise<T | null> {
     // para uso offline, mas não faz parte do caminho crítico de exibição.
     // A escrita é idempotente e o cache de origem (HTTP/jsonCache do desktop)
     // já está protegido por gravação atômica antes de esta resposta chegar.
+    // Uma resposta antiga não pode desfazer o bundle publicado enquanto ela
+    // estava na rede. Durante a instalação, o bundle é o único escritor.
+    if (_catalogInstalls || generation !== _catalogGeneration) {
+      return (await readRouted<T>(file, route).catch(() => null)) ?? data;
+    }
     memorySet(file, data);
-    void writeRouted(file, data, route).catch((writeError) => {
+    const write = writeRouted(file, data, route).catch((writeError) => {
+      reportReliabilityFailure("database_persist_failed", writeError, {
+        dataset: file,
+        stage: "persist",
+      });
       $dev.write(
         "Não foi possível persistir DB em segundo plano",
         `${file}: ${writeError instanceof Error ? writeError.message : String(writeError)}`
       );
     });
+    _networkWrites.add(write);
+    void write.finally(() => _networkWrites.delete(write));
 
     return data;
   })();
@@ -681,10 +700,7 @@ export default {
   async invalidateAll(): Promise<void> {
     _memory.clear();
     _memoryBytes = 0;
-    await Promise.all([
-      ...CATALOG_TABLES.map((t) => $idb.clear(t)),
-      purgeServiceWorkerCopy(),
-    ]);
+    await Promise.all([...CATALOG_TABLES.map((t) => $idb.clear(t)), purgeServiceWorkerCopy()]);
     $dev.write("Cache do DB limpo (tudo, aguardado)");
   },
 
@@ -705,7 +721,16 @@ export default {
         }
 
         // 2) IndexedDB — tabelas roteadas (+ migração do formato legado).
-        const routed = await readRouted<T>(file, routeFor(file));
+        let routed: T | null = null;
+        try {
+          routed = await readRouted<T>(file, routeFor(file));
+        } catch (error) {
+          // Um IDB indisponível não impede recuperar o dado pela rede.
+          reportReliabilityFailure("database_read_failed", error, {
+            dataset: file,
+            stage: "read_local",
+          });
+        }
         if (routed !== null) {
           $dev.write(`Lendo DB do cache IDB`, file);
           memorySet(file, routed);
@@ -841,12 +866,21 @@ export default {
       onProgress?: (_current: number, _total: number, _key: string) => void;
     } = {}
   ): Promise<void> {
-    const changes = await prepareBundleChanges(datasets, options.signal);
-    await $idb.applyCatalogBatch(changes, marker, {
-      signal: options.signal,
-      onApplied: options.onProgress,
-    });
-    for (const file of datasets.keys()) memoryDelete(file);
+    _catalogGeneration++;
+    _catalogInstalls++;
+    try {
+      // Escritas que já começaram precisam terminar antes de preparar a troca.
+      await Promise.allSettled([..._networkWrites]);
+      const changes = await prepareBundleChanges(datasets, options.signal);
+      await $idb.applyCatalogBatch(changes, marker, {
+        signal: options.signal,
+        onApplied: options.onProgress,
+      });
+      for (const file of datasets.keys()) memoryDelete(file);
+    } finally {
+      _catalogInstalls--;
+      _catalogGeneration++;
+    }
   },
 
   /**

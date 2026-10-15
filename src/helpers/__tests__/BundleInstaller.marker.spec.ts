@@ -86,9 +86,9 @@ describe("BundleInstaller.catalogNeedsRefreshForApp", () => {
     expect(await BundleInstaller.catalogNeedsRefreshForApp()).toBe(false);
   });
 
-  it("sem catálogo válido não há o que renovar: a instalação normal cuida", async () => {
+  it("um marcador legado pede renovação mesmo no desktop; instalação ausente continua sob demanda", async () => {
     expect(await BundleInstaller.catalogNeedsRefreshForApp()).toBe(false);
     rows.set("__bundle_marker__", { id: "__bundle_marker__", data: { version_number: 185 } });
-    expect(await BundleInstaller.catalogNeedsRefreshForApp()).toBe(false);
+    expect(await BundleInstaller.catalogNeedsRefreshForApp()).toBe(true);
   });
 });

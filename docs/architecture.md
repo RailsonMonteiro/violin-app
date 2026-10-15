@@ -37,20 +37,26 @@ completa e os limites testados estão em
 
 ## Atualização web/PWA
 
-`src/main.js` inicia o registro nativo do service worker antes do bootstrap de
-dados. O SW ativa automaticamente para permitir a migração de clientes antigos,
-mas o documento aberto só recarrega por ação do operador. O monitor verifica na
+O build injeta `config/pwaRecovery.cjs` diretamente no HTML, autorizado por hash
+na CSP e independente dos módulos, Vue e IndexedDB. Ele registra o SW, compara
+o build ativo e aplica código já pronto antes do bootstrap (espera máxima de
+2,5 segundos). Se o bootstrap falhar, continua tentando na retomada, ao voltar
+a rede e a cada minuto visível. Uma trava por build evita ciclos de recarga;
+a recuperação nunca remove dados. Ao montar a interface, entrega o controle
+ao monitor de `src/helpers/PwaUpdates.ts`. O SW ativa automaticamente para
+permitir a migração de clientes antigos. O monitor verifica na
 abertura, no retorno à rede/primeiro plano e a cada 15 minutos em primeiro plano,
 com `updateViaCache: none`. A identidade de cada build está no HTML e em
 `app-build.json` precacheado: a comparação detecta um controlador mais recente
 mesmo após a ativação, sem depender da versão SemVer.
 
 A Shell e a seção Aplicativo em Atualizações avisam quando é preciso recarregar.
-A aplicação manual aguarda as escritas de liturgia e finaliza o save web pendente
+A aplicação manual e a recuperação ao retomar o app aguardam as escritas de liturgia e finalizam o save web pendente
 das preferências; fica bloqueada durante apresentação, reprodução, tarefas e
-enquanto o editor de slides está aberto. Não limpa IndexedDB nem os caches do
-acervo. Clientes publicados antes desse monitor precisam de uma primeira recarga
-manual depois de o SW novo ativar para receber o aviso e os controles.
+enquanto o editor de slides está aberto ou há um campo/modal em edição. Não limpa
+IndexedDB nem os caches do acervo. Clientes publicados antes dessa rotina recebem
+a proteção ao carregar o HTML novo; o SW ativado entrega esse HTML na próxima
+navegação/abertura real, mas não substitui o JavaScript de uma aba antiga em execução.
 
 O deploy é serializado e, depois de gerar o precache atual, retém somente assets
 imutáveis validados de até cinco builds no total, por até 14 dias e 128 MiB no
@@ -60,7 +66,7 @@ Isso mantém imports de abas antigas durante essa janela; não garante uso offli
 de uma aba antiga após a troca do SW nem retenção indefinida.
 
 O banco segue outra regra: os JSONs de `json_db` passam por stale-while-revalidate
-no SW (`louvorja-db`), exceto o `config`, que é a pergunta "saiu versão nova?" e vai
+no SW (`louvorja-db`), exceto o `config` e pedidos `fresh=1`, que vão
 sempre à rede (`config/swDbRoute.cjs`). "Atualizar agora" instala o pacote do
 catálogo no web como no desktop, e `Database.invalidate*` também apaga a cópia do
 SW — sem isso o próximo `get` regravava o JSON antigo. Nenhuma dessas ações limpa o
@@ -448,7 +454,10 @@ Toda resposta 200 é injetada automaticamente no IDB via `writeRouted`.
   lidos uma última vez, migrados para as tabelas novas e apagados da `cache`.
 - **Stale-if-error** — sem rede, qualquer entrada existente é usada em vez de falhar.
 - **`opts.fresh`** — ignora memória/IDB e usa cache-buster por timestamp
-  (botão "Atualizar coletâneas").
+  (botão "Atualizar coletâneas"). O protocolo desktop também ignora seu TTL de
+  24 horas nesses pedidos; sem rede, conserva a cópia anterior. Atualizar o app
+  expira os JSONs do disco sem apagá-los. Falha de leitura do IndexedDB permite
+  tentar a rede e falhas de persistência são diagnosticadas no PostHog.
 - **Invalidação**: `$database.invalidate()` limpa todas as tabelas gerenciadas;
   `invalidate("pt_musics")` apaga só as linhas daquele dataset (pt não afeta es).
   A tela **Opções → Atualizações** expõe os dois botões de limpeza.
@@ -491,6 +500,12 @@ O marcador bíblico usa revisão 2 e só é gravado após todos os capítulos.
   em massa, com progresso na própria tela. Esse download não traz capítulos.
 - Aplicar atualização do catálogo usa o pacote menor. Reinstalar/restaurar o banco
   explicitamente usa o pacote completo.
+- Catálogos instalados são conferidos no boot/retomada/reconexão, com intervalo
+  mínimo de 15 minutos e recuo após falha. A versão publicada pode mudar sem
+  mudar o app. O marcador de instalação, não uma consulta recente ao `config`,
+  determina a versão instalada. A checagem remota não solicita versões anteriores.
+  A instalação aguarda escritas de rede em curso e descarta respostas iniciadas
+  antes da troca, para que elas não sobrescrevam o catálogo recém-instalado.
 - Bíblia e Busca Bíblica compartilham um download do pacote bíblico quando faltam
   seus capítulos. O catálogo menor não satisfaz essa solicitação.
 
@@ -532,9 +547,16 @@ clássica seguem exclusivos do desktop).
   `<img>` custa ~7MB de cota cada). A de áudio usa `rangeRequests`, sem o qual o
   Chrome Android não toca nem pula dentro do áudio em cache. O padrão de áudio inclui `.opus`, formato do catálogo atual; manter
   igual a `AUDIO_RE` em `WebFileStore.ts`.
+- **Identidade das mídias.** `WebFileStore` reconhece a URL pública e os prefixos
+  antigos de `/file` para o mesmo caminho. Download, conferência, contagem e
+  remoção usam essa equivalência; arquivos existentes não precisam ser baixados
+  novamente após trocar o domínio do catálogo. A fila confere as chaves gravadas
+  e registra falhas e contagens no PostHog. Falta de espaço interrompe novas
+  tentativas sem apagar o acervo. O diagnóstico de armazenamento registra uso,
+  cota, persistência e contagens, sem enviar URLs ou conteúdo dos arquivos.
 - **Catálogo local.** O scan de álbuns baixados lê só o IndexedDB. O app instalado
   chama `ensureCatalogBundle()` sozinho alguns segundos depois do boot, com internet
-  (`helpers/CatalogAutoInstall.ts`: é um ZIP de ~30MB, então a aba comum do navegador,
+  (`helpers/CatalogAutoInstall.ts`: é um ZIP de ~4MB, então a aba comum do navegador,
   a economia de dados e o 2G ficam de fora); nos demais casos ele desce ao abrir
   Sincronizar. É o equivalente da Verificação Inicial do desktop.
 - Só respostas 200 completas são gravadas; um 206 contaria como arquivo inteiro.
