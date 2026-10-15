@@ -45,15 +45,13 @@
         v-if="active && (text || extra)"
         :key="transitionKey"
         class="module-projection__content"
-        :style="{
-          backgroundColor: text_background_enabled
-            ? text_background_color || 'transparent'
-            : 'transparent',
-        }"
+        :style="textBox"
       >
         <span
           v-if="text"
-          v-fit-clock-line="moduleId === ModuleEnum.CLOCK ? font_size_px : null"
+          v-fit-clock-line="
+            moduleId === ModuleEnum.CLOCK ? { size: font_size_px, widthFrom: container } : null
+          "
           :class="['module-projection__text', `module-projection__text--${moduleId}`]"
           :style="{
             color: color || font_color || '#FFFFFF',
@@ -68,7 +66,9 @@
 
         <span
           v-if="extra"
-          v-fit-clock-line="moduleId === ModuleEnum.CLOCK ? ref_font_size_px : null"
+          v-fit-clock-line="
+            moduleId === ModuleEnum.CLOCK ? { size: ref_font_size_px, widthFrom: container } : null
+          "
           :class="[
             'module-projection__extra',
             { 'module-projection__extra--clock': moduleId === ModuleEnum.CLOCK },
@@ -100,7 +100,11 @@ import { ModuleEnum } from "@/enums/ModuleEnum";
 import DrawProjection from "@/modules/draw/components/DrawProjection.vue";
 import NameDrawProjection from "@/modules/name_draw/components/NameDrawProjection.vue";
 import { useContainerSize } from "@/composables/useContainerSize";
-import { horizontalTextAlign, moduleCustomizationDefault } from "@/helpers/ModuleFormatting";
+import {
+  horizontalTextAlign,
+  moduleCustomizationDefault,
+  textBoxStyle,
+} from "@/helpers/ModuleFormatting";
 import { vFitClockLine } from "@/modules/clock/vFitClockLine";
 
 const { container, fontSizePc } = useContainerSize();
@@ -153,6 +157,29 @@ const reference_font_size = computed(() => ud("reference_font_size", 10));
 const background_color = computed(() => ud("background_color", "#000000"));
 const text_background_color = computed(() => ud("text_background_color", "transparent"));
 const text_background_enabled = computed(() => ud("text_background_enabled", false));
+const text_background_opacity = computed(() => ud("text_background_opacity", 100));
+const text_border_enabled = computed(() => ud("text_border_enabled", false));
+const text_border_color = computed(() => ud("text_border_color", "#FFFFFF"));
+const text_border_opacity = computed(() => ud("text_border_opacity", 100));
+const text_border_radius = computed(() => ud("text_border_radius", 0));
+const text_border_width = computed(() => ud("text_border_width", 2));
+
+/**
+ * Fundo e borda da caixa — o MESMO helper do programa (`useModuleBodyStyle`),
+ * para o mesmo módulo não sair diferente no telão.
+ */
+const textBox = computed(() =>
+  textBoxStyle({
+    enabled: text_background_enabled.value,
+    color: text_background_color.value,
+    opacity: text_background_opacity.value,
+    borderEnabled: text_border_enabled.value,
+    borderColor: text_border_color.value,
+    borderOpacity: text_border_opacity.value,
+    borderRadius: text_border_radius.value,
+    borderWidth: text_border_width.value,
+  })
+);
 const border_spacing = computed(() => ud("border_spacing", 10));
 const vertical_align = computed(() => ud("vertical_align", "center"));
 const horizontal_align = computed(() => ud("horizontal_align", "center"));
@@ -292,13 +319,19 @@ onMounted(() => {
   justify-content: flex-end;
 }
 
+/*
+ * A caixa acompanha o texto, como a dos slides (`Slide.vue`): o pai é flex e
+ * nunca estica os filhos, então `fit-content` + padding lateral dão a mesma
+ * margem ao redor da letra. Era `width: 100%` — o fundo preenchia a linha toda.
+ */
 .module-projection__content {
   position: relative;
   z-index: 1;
   display: flex;
   flex-direction: column;
   max-width: 100%;
-  width: 100%;
+  width: fit-content;
+  padding: 0.2em 0.4em;
 }
 
 .module-projection__text {

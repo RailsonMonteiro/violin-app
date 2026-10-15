@@ -15,6 +15,8 @@ export type CustomizationType =
   | "h-align"
   | "image"
   | "opacity"
+  | "radius"
+  | "border-width"
   | "object-fit"
   | "select"
   | "boolean";

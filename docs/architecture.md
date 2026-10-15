@@ -327,6 +327,45 @@ Todas as chaves de `$userdata.get/set` **devem** ser referenciadas via `KEYS.*` 
 `src/constants/UserDataKeys.ts`. Nunca use strings literais como `"theme"` ou
 `"options.auto_cache_media"` — isso quebra a rastreabilidade e dificulta refatorações.
 
+### Fundo do texto dos módulos utilitários
+
+Timer, timer_worship, cronômetro e relógio têm uma "caixa de texto" com o mesmo
+contrato dos slides (`useSlideStyle.textBoxStyle`), com uma diferença: aqui a
+**cor também é configurável** — o `<input type="color">` do painel só devolve
+`#RRGGBB`, então a transparência vem no controle ao lado.
+
+| Chave                     | Papel                          | Padrão        |
+| ------------------------- | ------------------------------ | ------------- |
+| `text_background_enabled` | liga o fundo                   | `false`       |
+| `text_background_color`   | cor do fundo                   | `transparent` |
+| `text_background_opacity` | transparência do fundo (0–100) | `100`         |
+| `text_border_enabled`     | liga a borda                   | `false`       |
+| `text_border_color`       | cor da borda                   | `#FFFFFF`     |
+| `text_border_opacity`     | transparência da borda (0–100) | `100`         |
+| `text_border_radius`      | cantos arredondados (px, 0–50) | `0`           |
+| `text_border_width`       | espessura (px, 0–20)           | `2`           |
+
+Os padrões são neutros: quem já usava o fundo continua vendo igual. As chaves são
+declaradas no manifesto de cada módulo — é isso que faz programa, projeção e
+camada da tela de fundo lerem o mesmo contrato, inclusive em instalações antigas
+sem essas chaves salvas.
+
+O estilo é montado **uma vez**, em `textBoxStyle()`
+(`src/helpers/ModuleFormatting.ts`), e consumido nos dois lugares que desenham o
+módulo: `useModuleBodyStyle` (tela do programa) e `ModuleProjectionLayer` (janela
+de projeção e camada da tela de fundo). Se os dois calculassem sozinhos, o mesmo
+módulo sairia diferente no telão.
+
+A caixa **acompanha o texto** (`width: fit-content` + `padding: 0.2em 0.4em`),
+como nos slides — era `width: 100%`, e o fundo preenchia a linha inteira.
+
+Isso obriga a diretiva `v-fit-clock-line` (que encolhe a fonte do relógio para a
+linha caber) a medir o **palco**, não a própria caixa: medindo a caixa — que
+agora encolhe junto com o texto — ela diria sempre "cabe" e a redução nunca
+dispararia, quebrando a linha em vez de encolher. Por isso ela aceita
+`{ size, widthFrom }`, e quem entrega o palco são os três call sites (camada de
+projeção, módulo clock e `Clock.vue`).
+
 Estrutura do `user_data` no Pinia store:
 
 ```js
