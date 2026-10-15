@@ -10,6 +10,9 @@ const h = vi.hoisted(() => ({
   sound: { value: false },
   app: null as unknown as { modules: Record<string, { show?: boolean }> },
   flush: vi.fn().mockResolvedValue(undefined),
+  check: vi.fn().mockResolvedValue(undefined),
+  applied: vi.fn(),
+  subscribers: new Set<(_state: { status: string; ready: boolean; lastCheckedAt: null }) => void>(),
 }));
 vi.mock("@/helpers/Platform", () => ({ default: { isDesktop: false } }));
 vi.mock("@/helpers/Dev", () => ({ default: { write: vi.fn() } }));
@@ -25,15 +28,26 @@ vi.mock("@/stores/appStore", () => ({ useAppStore: () => h.app }));
 vi.mock("@/helpers/AppData", () => ({ default: { get: () => h.playing } }));
 vi.mock("@/helpers/ScheduledStore", () => ({ default: { flush: h.flush } }));
 vi.mock("@/helpers/PwaUpdates", () => ({
-  subscribePwaUpdates: () => () => {},
-  checkPwaUpdate: vi.fn(),
+  subscribePwaUpdates: (
+    callback: (_state: { status: string; ready: boolean; lastCheckedAt: null }) => void
+  ) => {
+    h.subscribers.add(callback);
+    return () => h.subscribers.delete(callback);
+  },
+  checkPwaUpdate: h.check,
   applyPwaUpdate: async (options: {
     canReload: () => boolean;
     beforeReload: () => Promise<void>;
   }) => {
     if (!options.canReload()) return false;
-    await options.beforeReload();
-    return options.canReload();
+    try {
+      await options.beforeReload();
+      if (!options.canReload()) return false;
+      h.applied();
+      return true;
+    } catch {
+      return false;
+    }
   },
 }));
 import UserData from "@/helpers/UserData";
@@ -56,6 +70,8 @@ describe("aplicação PWA preserva o trabalho atual", () => {
     h.sound.value = false;
     h.app = reactive({ modules: {} });
     h.flush.mockReset().mockResolvedValue(undefined);
+    h.check.mockReset().mockResolvedValue(undefined);
+    h.applied.mockClear();
   });
   afterEach(() => {
     UserData.flushPendingWebSave();
@@ -120,5 +136,48 @@ describe("aplicação PWA preserva o trabalho atual", () => {
     finish();
     expect(await pending).toBe(true);
     expect(JSON.parse(localStorage.getItem("user_data")!).theme).toBe("dark");
+  });
+
+  const ready = () =>
+    h.subscribers.forEach((callback) =>
+      callback({ status: "ready", ready: true, lastCheckedAt: null })
+    );
+
+  it("recupera código após terminar a reprodução sem exigir novo clique", async () => {
+    setup();
+    h.playing = true;
+    ready();
+    window.dispatchEvent(new Event("lj:pwa-recover"));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.applied).not.toHaveBeenCalled();
+    h.playing = false;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.applied).toHaveBeenCalledOnce();
+    expect(h.flush).toHaveBeenCalledOnce();
+  });
+
+  it("aplica quando o novo código termina de baixar após a verificação", async () => {
+    const pwa = setup();
+    await pwa.check();
+    expect(h.applied).not.toHaveBeenCalled();
+    ready();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.applied).toHaveBeenCalledOnce();
+  });
+
+  it("não repete falha de gravação a cada segundo nem após desmontar", async () => {
+    const pwa = setup();
+    ready();
+    h.flush.mockRejectedValueOnce(new Error("IndexedDB indisponível"));
+    await pwa.check();
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(h.flush).toHaveBeenCalledOnce();
+    expect(h.applied).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.applied).toHaveBeenCalledOnce();
+    scopes.splice(0).forEach((scope) => scope.stop());
+    window.dispatchEvent(new Event("lj:pwa-recover"));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.applied).toHaveBeenCalledOnce();
   });
 });

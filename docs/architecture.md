@@ -49,11 +49,20 @@ abertura, no retorno à rede/primeiro plano e a cada 15 minutos em primeiro plan
 com `updateViaCache: none`. A identidade de cada build está no HTML e em
 `app-build.json` precacheado: a comparação detecta um controlador mais recente
 mesmo após a ativação, sem depender da versão SemVer.
+Falhas de registro, verificação e instalação têm novas tentativas automáticas
+com espera crescente de 15 segundos até 5 minutos, somente online e visível.
+O timeout de 30 segundos limita a espera sem descartar um registro nativo que
+termine depois. O diagnóstico mantém a etapa e distingue `TimeoutError`;
+`pwa_update_recovered` registra as tentativas e o tempo até recuperar, enquanto
+`update_status` preserva o estado textual no PostHog.
 
 A Shell e a seção Aplicativo em Atualizações avisam quando é preciso recarregar.
-A aplicação manual e a recuperação ao retomar o app aguardam as escritas de liturgia e finalizam o save web pendente
+A aplicação manual, a recuperação ao retomar o app e a recuperação de imports
+de código/CSS que falharam aguardam as escritas de liturgia e finalizam o save web pendente
 das preferências; fica bloqueada durante apresentação, reprodução, tarefas e
-enquanto o editor de slides está aberto ou há um campo/modal em edição. Não limpa
+enquanto o editor de slides está aberto ou há um campo/modal em edição. A recuperação
+solicitada fica pendente até o código novo estar pronto e o trabalho terminar;
+falhas de gravação impedem a recarga e são retentadas no máximo uma vez por minuto. Não limpa
 IndexedDB nem os caches do acervo. Clientes publicados antes dessa rotina recebem
 a proteção ao carregar o HTML novo; o SW ativado entrega esse HTML na próxima
 navegação/abertura real, mas não substitui o JavaScript de uma aba antiga em execução.

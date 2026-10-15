@@ -23,10 +23,15 @@ export function usePwaUpdates() {
   const tasks = useBackgroundTasks();
   const backgroundSound = useBackgroundSound();
   const store = useAppStore();
+  let recoveryPending = false;
+  let recovering = false;
+  let disposed = false;
+  let nextRecoveryAt = 0;
   // Window.closed não é reativo; o clique também revalida o estado real.
   const pulse = ref(0);
   const timer = setInterval(() => {
     pulse.value++;
+    void recoverWhenSafe();
   }, 1000);
   const hasWork = () =>
     Boolean(
@@ -42,20 +47,43 @@ export function usePwaUpdates() {
     return hasWork();
   });
   onScopeDispose(() => {
+    disposed = true;
     unsubscribe();
     clearInterval(timer);
   });
   const apply = () =>
     applyPwaUpdate({
-      canReload: () => !hasWork(),
+      canReload: () => !disposed && !hasWork(),
       beforeReload: async () => {
         await ScheduledStore.flush();
         UserData.flushPendingWebSave();
       },
     });
+  const recoverWhenSafe = async () => {
+    if (
+      disposed ||
+      recovering ||
+      !recoveryPending ||
+      !state.value.ready ||
+      document.visibilityState === "hidden" ||
+      hasWork() ||
+      Date.now() < nextRecoveryAt
+    )
+      return;
+    recovering = true;
+    try {
+      recoveryPending = !(await apply());
+      // Uma gravação indisponível não pode causar uma tentativa a cada segundo.
+      if (recoveryPending) nextRecoveryAt = Date.now() + 60_000;
+    } finally {
+      recovering = false;
+    }
+  };
   const checkAndApply = async () => {
+    recoveryPending = true;
+    nextRecoveryAt = 0;
     await checkPwaUpdate();
-    if (state.value.ready) await apply();
+    await recoverWhenSafe();
   };
   let wasHidden = document.visibilityState === "hidden";
   const resumed = () => {

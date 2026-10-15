@@ -1,8 +1,8 @@
 /**
  * A importação sob demanda pode falhar por rede, resposta inválida ou porque
  * a aba ainda pede arquivos de uma versão anterior. A mensagem do navegador
- * não distingue essas causas. Recarregar sozinho derrubaria o que estiver
- * tocando, então a decisão fica com o operador.
+ * não distingue essas causas. A recuperação verifica se há código novo e
+ * só o aplica quando a janela puder gravar os dados sem interromper trabalho.
  *
  * @category deve-virar-composable
  */
@@ -19,6 +19,7 @@ export function isStaleChunkError(err: unknown): boolean {
 export function notifyStaleVersion(): void {
   if (Platform.isDesktop) return;
   void checkPwaUpdate();
+  window.dispatchEvent(new Event("lj:pwa-recover"));
   $snackbar.show({
     text: i18nAtual()?.global.t("shell.stale_version") ?? "",
     color: "warning",
