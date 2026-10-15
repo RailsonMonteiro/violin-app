@@ -10,6 +10,8 @@ import $path from "@/helpers/Path";
 import $alert from "@/helpers/Alert";
 import $snackbar from "@/helpers/Snackbar";
 import { NET_TIMEOUT, fetchWithTimeout, ehRemota } from "@/helpers/Http";
+import { isWebFileStoreSupported, readDownloadedAudio } from "@/helpers/WebFileStore";
+import { reportReliabilityFailure } from "@/helpers/ReliabilityDiagnostics";
 import { reportNetworkResult } from "@/composables/useConnectivity";
 import { i18nAtual } from "@/i18n";
 import $modules from "@/helpers/Modules";
@@ -118,6 +120,7 @@ let _cancelMusicMetadataWait: (() => void) | null = null;
 // o early-return pelo _loadingId já as ignore, a request continuava
 // drenando bytes da rede e ocupando handlers).
 let _audioXhr: XMLHttpRequest | null = null;
+let _audioLoadEpoch = 0;
 // Troca de modo em andamento: a faixa antiga segue tocando até a nova assumir,
 // e chegar ao fim dela não é motivo para encerrar a música.
 let _switchingMode = false;
@@ -889,7 +892,7 @@ function _alertAudioFailure(error: unknown, retry?: () => void): void {
   );
 }
 
-function _loadAudioSrc(
+async function _loadAudioSrc(
   audioUrl: string,
   idCheck: string | number | null,
   retryFn: (id: string | number) => void,
@@ -901,7 +904,9 @@ function _loadAudioSrc(
     _self.pause(false);
   },
   deferAudioContext = false
-): void {
+): Promise<void> {
+  const loadEpoch = ++_audioLoadEpoch;
+  let cacheStatus = "not_checked";
   // Captura o contexto desta tentativa. Callbacks de XHR podem chegar depois
   // que outra faixa assumiu `_activePlayback`; usar o contexto global nesse
   // ponto misturaria um erro antigo com o playback novo.
@@ -913,7 +918,13 @@ function _loadAudioSrc(
       }
     : null;
   const requestTelemetry = (extra: Record<string, unknown> = {}): Record<string, unknown> =>
-    requestContext ? _telemetryFor(requestContext, extra) : extra;
+    requestContext
+      ? _telemetryFor(requestContext, { web_cache_status: cacheStatus, ...extra })
+      : extra;
+  const isCurrentLoad = () =>
+    loadEpoch === _audioLoadEpoch &&
+    _loadingId === idCheck &&
+    _activePlayback?.playback_id === requestContext?.playback_id;
   const startedAt = Date.now();
   const requestRetry = (): void => {
     Telemetry.track(
@@ -947,7 +958,124 @@ function _loadAudioSrc(
   // traria a trilha inteira antes de tocar, que é justamente a espera que se quer evitar.
   const streamsFromDisk =
     audioUrl.startsWith("louvorja://onlinevideo/") || OnlineVideo.isProgressiveUrl(audioUrl);
+  if (_audioXhr) {
+    const previousRequest = _audioXhr;
+    _audioXhr = null;
+    try {
+      previousRequest.abort();
+    } catch (_) {
+      /* ignore */
+    }
+  }
   const needsOpusDecode = isOpusUrl(audioUrl) && opusNeedsFallback();
+
+  const acceptBlob = (blob: Blob, status: number, responseContentType: string | null): void => {
+    if (!isCurrentLoad()) return;
+    const elapsed = Date.now() - startedAt;
+    $appdata.set(KEYS.MODULES.MEDIA.CONFIG.LAZY, false);
+    $appdata.set(KEYS.MODULES.MEDIA.LOADING, false);
+    const originalSource = {
+      ...mediaSourceDetails(audioUrl),
+      ...mediaBlobDetails(blob, responseContentType),
+    };
+    if (requestContext) requestContext = { ...requestContext, original_source: originalSource };
+    if (_activePlayback?.playback_id === requestContext?.playback_id && _activePlayback) {
+      _activePlayback = { ..._activePlayback, original_source: originalSource };
+      if (!deferAudioContext) _audio.setTelemetryContext(_activePlayback);
+    }
+    Telemetry.histogram("louvorja.music.audio.load.duration", elapsed, {
+      outcome: "completed",
+      source_type: _sourceType(audioUrl),
+    });
+    Telemetry.track(
+      "music_audio_loaded",
+      requestTelemetry({
+        id_music: idCheck,
+        status: status,
+        bytes: blob.size,
+        content_type: blob.type,
+        elapsed_ms: elapsed,
+      })
+    );
+    Telemetry.track(
+      cacheStatus === "hit" ? "music_audio_cache_loaded" : "music_audio_transfer_completed",
+      requestTelemetry({
+        id_music: idCheck,
+        status: status,
+        bytes: blob.size,
+        content_type: blob.type,
+        elapsed_ms: elapsed,
+      })
+    );
+    if (cacheStatus !== "hit" && ehRemota(audioUrl)) reportNetworkResult(true, "media");
+    const finish = (blob: Blob): void => {
+      if (!isCurrentLoad()) return;
+      onSource(URL.createObjectURL(blob), false, requestContext?.original_source);
+    };
+    if (needsOpusDecode) {
+      $appdata.set(KEYS.MODULES.MEDIA.LOADING, true);
+      decodeOpusToWav(blob as Blob).then(
+        (wav) => {
+          if (!isCurrentLoad()) return;
+          $appdata.set(KEYS.MODULES.MEDIA.LOADING, false);
+          finish(wav);
+        },
+        (error) => {
+          Telemetry.captureException(
+            error,
+            requestTelemetry({ operation: "music_opus_decode", id_music: idCheck })
+          );
+          if (!isCurrentLoad()) return;
+          $appdata.set(KEYS.MODULES.MEDIA.LOADING, false);
+          _switchingMode = false;
+          if (!_keepVideoProjectionOnLoadError()) _self.close(true);
+          _alertAudioFailure(error, requestRetry);
+        }
+      );
+    } else {
+      finish(blob as Blob);
+    }
+    console.info("[Media] áudio preparado:", {
+      web_cache_status: cacheStatus,
+      source_type: _sourceType(audioUrl),
+      bytes: blob.size,
+      content_type: blob.type || "unknown",
+      elapsed_ms: elapsed,
+    });
+  };
+  // A mesma cópia que aparece como baixada tem prioridade, inclusive sem SW
+  // controlador, com endereço legado ou com a conexão marcada como disponível.
+  if (!Platform.isDesktop && ehRemota(audioUrl) && isWebFileStoreSupported()) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cached: Blob | null = null;
+    try {
+      cached = await Promise.race([
+        readDownloadedAudio(audioUrl),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new DOMException("Leitura do áudio local demorou demais", "TimeoutError")),
+            10_000
+          );
+        }),
+      ]);
+      cacheStatus = cached ? "hit" : "miss";
+    } catch (error) {
+      cacheStatus = "read_error";
+      reportReliabilityFailure(
+        "music_audio_cache_read_failed",
+        error,
+        requestTelemetry({ stage: "read_local", id_music: idCheck })
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!isCurrentLoad()) return;
+    if (cached) {
+      acceptBlob(cached, 200, cached.type);
+      return;
+    }
+  }
+
   if (
     !needsOpusDecode &&
     (streamsFromDisk ||
@@ -974,15 +1102,6 @@ function _loadAudioSrc(
   }
 
   $appdata.set(KEYS.MODULES.MEDIA.CONFIG.LAZY, false);
-  if (_audioXhr) {
-    const previousRequest = _audioXhr;
-    _audioXhr = null;
-    try {
-      previousRequest.abort();
-    } catch (_) {
-      /* ignore */
-    }
-  }
   const request = new XMLHttpRequest();
   _audioXhr = request;
   try {
@@ -1005,7 +1124,7 @@ function _loadAudioSrc(
   request.onload = function (this: XMLHttpRequest) {
     const isCurrentRequest = _audioXhr === request;
     if (isCurrentRequest) _audioXhr = null;
-    if (!isCurrentRequest || _loadingId !== idCheck) return;
+    if (!isCurrentRequest || !isCurrentLoad()) return;
     $appdata.set(KEYS.MODULES.MEDIA.LOADING, false);
     const elapsed = Date.now() - startedAt;
     if (
@@ -1020,72 +1139,7 @@ function _loadAudioSrc(
       } catch {
         /* optional metadata */
       }
-      const originalSource = {
-        ...mediaSourceDetails(audioUrl),
-        ...mediaBlobDetails(this.response, responseContentType),
-      };
-      if (requestContext) requestContext = { ...requestContext, original_source: originalSource };
-      if (_activePlayback?.playback_id === requestContext?.playback_id && _activePlayback) {
-        _activePlayback = { ..._activePlayback, original_source: originalSource };
-        if (!deferAudioContext) _audio.setTelemetryContext(_activePlayback);
-      }
-      Telemetry.histogram("louvorja.music.audio.load.duration", elapsed, {
-        outcome: "completed",
-        source_type: _sourceType(audioUrl),
-      });
-      Telemetry.track(
-        "music_audio_loaded",
-        requestTelemetry({
-          id_music: idCheck,
-          status: this.status,
-          bytes: this.response.size,
-          content_type: this.response.type,
-          elapsed_ms: elapsed,
-        })
-      );
-      Telemetry.track(
-        "music_audio_transfer_completed",
-        requestTelemetry({
-          id_music: idCheck,
-          status: this.status,
-          bytes: this.response.size,
-          content_type: this.response.type,
-          elapsed_ms: elapsed,
-        })
-      );
-      if (ehRemota(audioUrl)) reportNetworkResult(true, "media");
-      const finish = (blob: Blob): void => {
-        if (_loadingId !== idCheck) return;
-        onSource(URL.createObjectURL(blob), false, requestContext?.original_source);
-      };
-      if (needsOpusDecode) {
-        $appdata.set(KEYS.MODULES.MEDIA.LOADING, true);
-        decodeOpusToWav(this.response as Blob).then(
-          (wav) => {
-            $appdata.set(KEYS.MODULES.MEDIA.LOADING, false);
-            finish(wav);
-          },
-          (error) => {
-            $appdata.set(KEYS.MODULES.MEDIA.LOADING, false);
-            Telemetry.captureException(
-              error,
-              requestTelemetry({ operation: "music_opus_decode", id_music: idCheck })
-            );
-            if (_loadingId !== idCheck) return;
-            _switchingMode = false;
-            if (!_keepVideoProjectionOnLoadError()) _self.close(true);
-            _alertAudioFailure(error, requestRetry);
-          }
-        );
-      } else {
-        finish(this.response as Blob);
-      }
-      console.info("[Media] arquivo direto transferido:", {
-        source_type: _sourceType(audioUrl),
-        bytes: this.response.size,
-        content_type: this.response.type || "unknown",
-        elapsed_ms: elapsed,
-      });
+      acceptBlob(this.response, this.status, responseContentType);
     } else {
       Telemetry.histogram("louvorja.music.audio.load.duration", elapsed, {
         outcome: "invalid_response",
@@ -1120,7 +1174,7 @@ function _loadAudioSrc(
   const falhaDeRede = function (event?: Event) {
     const isCurrentRequest = _audioXhr === request;
     if (isCurrentRequest) _audioXhr = null;
-    if (!isCurrentRequest || _loadingId !== idCheck) return;
+    if (!isCurrentRequest || !isCurrentLoad()) return;
     _switchingMode = false;
     $appdata.set(KEYS.MODULES.MEDIA.LOADING, false);
     // No desktop o áudio vem por `louvorja://`, que é o protocolo lendo disco:
@@ -1128,7 +1182,14 @@ function _loadAudioSrc(
     // o app para offline com a rede intacta.
     if (ehRemota(audioUrl)) reportNetworkResult(false, "media");
     if (!_keepVideoProjectionOnLoadError()) _self.close(true);
-    const reason = event?.type === "timeout" ? "timeout" : "network_error";
+    const reason =
+      event?.type === "timeout"
+        ? "timeout"
+        : cacheStatus === "read_error"
+          ? "cache_read_failed"
+          : cacheStatus === "miss" && navigator.onLine === false
+            ? "offline_cache_miss"
+            : "network_error";
     const elapsed = Date.now() - startedAt;
     Telemetry.histogram("louvorja.music.audio.load.duration", elapsed, {
       outcome: reason,
@@ -1156,7 +1217,15 @@ function _loadAudioSrc(
     // sem rede ele volta a cada música. O aviso leva a repetição no clique.
     const t = i18nAtual()?.global?.t;
     $snackbar.warning(
-      t ? t("modules.media.alerts.not_loaded_offline") : "Não foi possível baixar este áudio.",
+      t
+        ? t(
+            cacheStatus === "read_error"
+              ? "modules.media.alerts.local_read_failed"
+              : cacheStatus === "miss" && navigator.onLine === false
+                ? "modules.media.alerts.offline_not_downloaded"
+                : "modules.media.alerts.not_loaded_offline"
+          )
+        : "Não foi possível carregar este áudio.",
       {
         key: "media-offline",
         timeout: 6000,
@@ -2843,6 +2912,7 @@ const _self = {
   },
 
   clearVariables(): void {
+    ++_audioLoadEpoch;
     const cancelMetadataWait = _cancelMusicMetadataWait;
     _cancelMusicMetadataWait = null;
     cancelMetadataWait?.();

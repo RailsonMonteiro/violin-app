@@ -4,9 +4,9 @@
  *
  * No Electron o main process baixa os arquivos para a pasta de dados; aqui eles
  * vão para o Cache Storage, nos mesmos caches que o service worker consulta
- * (`louvorja-audio` e `louvorja-images`, ver `vite.config.js`). Como a URL
- * pedida pelo player é a mesma que foi gravada, tocar offline não exige mudança
- * em nenhum consumidor. Com isso `useSyncManager` e a tela Sincronizar servem
+ * (`louvorja-audio` e `louvorja-images`, ver `vite.config.js`). O player consulta
+ * a cópia local pelos endereços atual e legado, mesmo sem service worker ativo.
+ * Com isso `useSyncManager` e a tela Sincronizar servem
  * às duas plataformas com a mesma lógica.
  *
  * @category helper-puro — Sem APIs Vue; usa Cache Storage e fetch.
@@ -114,6 +114,20 @@ async function cachedResponse(
     if (response) return response;
   }
   return undefined;
+}
+
+/** A reprodução usa as mesmas chaves que o scan, mesmo sem um SW controlador. */
+export async function readDownloadedAudio(remote: string): Promise<Blob | null> {
+  if (!isWebFileStoreSupported() || cacheNameFor(remote) !== AUDIO_CACHE) return null;
+  const response = await cachedResponse(remote, await openCaches());
+  if (!response) return null;
+  if (response.status !== 200) {
+    discardResponseBody(response);
+    throw new Error(`Áudio local incompleto: HTTP ${response.status}`);
+  }
+  const blob = await response.blob();
+  if (!blob.size) throw new Error("O arquivo de áudio salvo está vazio");
+  return blob;
 }
 
 async function openCaches(): Promise<Record<string, Cache>> {

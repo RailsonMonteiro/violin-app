@@ -41,6 +41,7 @@ import {
   AUDIO_CACHE,
   IMAGE_CACHE,
   requestPersistence,
+  readDownloadedAudio,
   migrateLegacyMediaKeys,
   webDownload,
   webStorage,
@@ -119,6 +120,24 @@ describe("migração das chaves antigas do /file", () => {
 });
 
 describe("WebFileStore", () => {
+  it("reprodução lê a mesma cópia antiga reconhecida pelo scan, sem buscar na rede", async () => {
+    const remote = "/musics/pt/A/one.opus";
+    const audio = new FakeCache();
+    stores.set(AUDIO_CACHE, audio);
+    audio.items.set(`https://api.louvorja.com.br/file${remote}`, new Response("local audio"));
+    expect(await webStorage.checkLocal([remote])).toEqual({ [remote]: "own" });
+    expect(
+      await (await readDownloadedAudio(`https://files.louvorja.com.br${remote}`))!.text()
+    ).toBe("local audio");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reprodução distingue arquivo ausente de cópia local vazia", async () => {
+    expect(await readDownloadedAudio(url(files[0].remote))).toBeNull();
+    stores.get(AUDIO_CACHE)!.items.set(url(files[0].remote), new Response(""));
+    await expect(readDownloadedAudio(url(files[0].remote))).rejects.toThrow("salvo está vazio");
+  });
+
   it("reconhece após o download as URLs públicas do catálogo ao conferir pelos caminhos relativos", async () => {
     const remote = "/musics/pt/A/one.opus";
     const remoteUrl = `https://files.louvorja.com.br${remote}`;

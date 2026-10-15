@@ -5,6 +5,12 @@ import {
   type PwaUpdateState,
 } from "../PwaUpdates";
 
+const diagnostics = vi.hoisted(() => ({ event: vi.fn(), failure: vi.fn() }));
+vi.mock("@/helpers/ReliabilityDiagnostics", () => ({
+  reportReliabilityEvent: diagnostics.event,
+  reportReliabilityFailure: diagnostics.failure,
+}));
+
 class Worker extends EventTarget {
   state: ServiceWorkerState = "activated";
   postMessage = vi.fn();
@@ -14,7 +20,12 @@ class Worker extends EventTarget {
   }
 }
 
-function setup({ controller = new Worker(), loaded = "A", active = "A" } = {}) {
+function setup({
+  controller = new Worker(),
+  loaded = "A",
+  active = "A",
+  register: registerOverride = undefined as undefined | (() => Promise<unknown>),
+} = {}) {
   const sw = Object.assign(new EventTarget(), { controller, register: vi.fn() });
   const reg = Object.assign(new EventTarget(), {
     waiting: null as Worker | null,
@@ -22,6 +33,7 @@ function setup({ controller = new Worker(), loaded = "A", active = "A" } = {}) {
     update: vi.fn().mockResolvedValue(undefined),
   });
   sw.register.mockResolvedValue(reg);
+  if (registerOverride) sw.register.mockImplementation(registerOverride);
   const window_ = new EventTarget();
   const document_ = Object.assign(new EventTarget(), { visibilityState: "visible" });
   const states: PwaUpdateState[] = [];
@@ -63,6 +75,7 @@ describe("PwaUpdates", () => {
   const cleanups: Array<() => void> = [];
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.clearAllMocks();
   });
   afterEach(() => {
     cleanups.splice(0).forEach((fn) => fn());
@@ -192,6 +205,37 @@ describe("PwaUpdates", () => {
     expect(h.reload).not.toHaveBeenCalled();
   });
 
+  it("espera terminar a ativação mesmo após controllerchange antes de recarregar", async () => {
+    const h = boot({ active: "B" });
+    await h.tick();
+    const worker = new Worker();
+    worker.state = "installed";
+    h.reg.waiting = worker;
+    worker.postMessage.mockImplementation(() => {
+      h.reg.waiting = null;
+      worker.state = "activating";
+      h.sw.controller = worker;
+      h.sw.dispatchEvent(new Event("controllerchange"));
+    });
+    const pending = h.instance.apply({ canReload: () => true, beforeReload: async () => {} });
+    await h.tick();
+    expect(h.reload).not.toHaveBeenCalled();
+    worker.change("activated");
+    expect(await pending).toBe(true);
+    expect(h.reload).toHaveBeenCalledOnce();
+  });
+
+  it("ativação travada não recarrega nem perde o aviso de atualização", async () => {
+    const h = boot({ active: "B" });
+    await h.tick();
+    h.sw.controller.state = "activating";
+    const pending = h.instance.apply({ canReload: () => true, beforeReload: async () => {} });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(await pending).toBe(false);
+    expect(h.reload).not.toHaveBeenCalled();
+    expect(h.latest()).toMatchObject({ ready: true, status: "error" });
+  });
+
   it("limita verificação pendurada e permite tentar de novo", async () => {
     const h = boot();
     await h.tick();
@@ -240,5 +284,164 @@ describe("PwaUpdates", () => {
     expect(await pending).toBe(false);
     expect(h.latest()).toMatchObject({ status: "error", ready: true });
     expect(h.reload).not.toHaveBeenCalled();
+  });
+
+  it("acompanha registro concluído depois do timeout e relata a recuperação", async () => {
+    let finish!: (_value: unknown) => void;
+    const h = boot({
+      register: () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(h.latest().status).toBe("error");
+    expect(diagnostics.failure).toHaveBeenCalledWith(
+      "pwa_update_failed",
+      expect.objectContaining({ name: "TimeoutError" }),
+      expect.objectContaining({ stage: "register" })
+    );
+    finish(h.reg);
+    await h.tick();
+    expect(h.latest().status).toBe("current");
+    expect(diagnostics.event).toHaveBeenCalledWith(
+      "pwa_update_recovered",
+      expect.objectContaining({
+        stage: "register",
+        update_status: "current",
+        recovery_ms: 0,
+      })
+    );
+    const worker = new Worker();
+    worker.state = "installing";
+    h.reg.installing = worker;
+    h.reg.dispatchEvent(new Event("updatefound"));
+    h.reg.installing = null;
+    h.reg.waiting = worker;
+    worker.change("installed");
+    expect(h.latest()).toMatchObject({ ready: true, status: "ready" });
+    expect(h.reload).not.toHaveBeenCalled();
+  });
+
+  it("repete falha de atualização sem clique com espera crescente e cancela ao recuperar", async () => {
+    const h = boot();
+    await h.tick();
+    h.reg.update.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await h.instance.check();
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(h.reg.update).toHaveBeenCalledTimes(1);
+    h.reg.update.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.reg.update).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(h.reg.update).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.reg.update).toHaveBeenCalledTimes(3);
+    expect(h.latest().status).toBe("current");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.reg.update).toHaveBeenCalledTimes(3);
+  });
+
+  it("não repete em segundo plano e retoma ao voltar para o app", async () => {
+    const h = boot();
+    await h.tick();
+    h.reg.update.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await h.instance.check();
+    h.document_.visibilityState = "hidden";
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.reg.update).toHaveBeenCalledTimes(1);
+    h.document_.visibilityState = "visible";
+    h.document_.dispatchEvent(new Event("visibilitychange"));
+    await h.tick();
+    expect(h.latest().status).toBe("current");
+  });
+
+  it("descartar o controlador impede retry e diagnóstico de registro tardio", async () => {
+    let finish!: (_value: unknown) => void;
+    const h = boot({
+      register: () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    h.instance.dispose();
+    diagnostics.event.mockClear();
+    finish(h.reg);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.sw.register).toHaveBeenCalledTimes(1);
+    expect(diagnostics.event).not.toHaveBeenCalled();
+  });
+
+  it("recupera registro rejeitado automaticamente, sem depender do intervalo de 15 minutos", async () => {
+    const h = boot({ register: () => Promise.reject(new TypeError("Falha ao buscar sw.js")) });
+    await h.tick();
+    expect(h.latest().status).toBe("error");
+    h.sw.register.mockResolvedValue(h.reg);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(h.latest().status).toBe("current");
+    expect(h.sw.register).toHaveBeenCalledTimes(2);
+    expect(diagnostics.event).toHaveBeenCalledWith(
+      "pwa_update_recovered",
+      expect.objectContaining({
+        stage: "register",
+        attempts: 1,
+        recovery_ms: 15_000,
+      })
+    );
+  });
+
+  it("instalação lenta mantém o acompanhamento e informa a etapa correta", async () => {
+    const h = boot();
+    await h.tick();
+    const worker = new Worker();
+    worker.state = "installing";
+    h.reg.update.mockImplementationOnce(async () => {
+      h.reg.installing = worker;
+      h.reg.dispatchEvent(new Event("updatefound"));
+    });
+    const checking = h.instance.check();
+    await vi.advanceTimersByTimeAsync(30_000);
+    await checking;
+    expect(diagnostics.failure).toHaveBeenCalledWith(
+      "pwa_update_failed",
+      expect.objectContaining({
+        name: "TimeoutError",
+      }),
+      expect.objectContaining({ stage: "install_worker" })
+    );
+    await vi.advanceTimersByTimeAsync(2000);
+    h.reg.installing = null;
+    h.reg.waiting = worker;
+    worker.change("installed");
+    expect(h.latest()).toMatchObject({ ready: true, status: "ready" });
+    expect(diagnostics.event).toHaveBeenCalledWith(
+      "pwa_update_recovered",
+      expect.objectContaining({
+        stage: "install_worker",
+        recovery_ms: 2000,
+      })
+    );
+    expect(h.reload).not.toHaveBeenCalled();
+  });
+
+  it("fica offline sem tentar até a rede voltar e não perde uma atualização já pronta", async () => {
+    const h = boot();
+    await h.tick();
+    h.reg.update.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await h.instance.check();
+    h.online.mockReturnValue(false);
+    h.window_.dispatchEvent(new Event("offline"));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.reg.update).toHaveBeenCalledTimes(1);
+    expect(h.latest().status).toBe("offline");
+    h.readActiveBuildId.mockResolvedValue("B");
+    h.online.mockReturnValue(true);
+    h.window_.dispatchEvent(new Event("online"));
+    await h.tick();
+    expect(h.latest()).toMatchObject({ status: "ready", ready: true });
+    h.online.mockReturnValue(false);
+    h.window_.dispatchEvent(new Event("offline"));
+    expect(h.latest()).toMatchObject({ status: "ready", ready: true });
   });
 });

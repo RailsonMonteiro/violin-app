@@ -9,7 +9,7 @@ import { isStaleChunkError, notifyStaleVersion, watchStaleVersion } from "../Sta
 
 /**
  * O erro de importação não identifica a causa. O aviso aparece para módulo,
- * menu ou CSS e deixa a recuperação sob controle do operador.
+ * menu ou CSS e solicita recuperação pela guarda de atividade da janela.
  */
 describe("StaleVersion", () => {
   beforeEach(() => {
@@ -27,11 +27,16 @@ describe("StaleVersion", () => {
   });
 
   it("avisa na web e fica calado no desktop", () => {
+    const recover = vi.fn();
+    window.addEventListener("lj:pwa-recover", recover);
     notifyStaleVersion();
     expect(show).toHaveBeenCalledOnce();
+    expect(recover).toHaveBeenCalledOnce();
     platform.isDesktop = true;
     notifyStaleVersion();
     expect(show).toHaveBeenCalledOnce();
+    expect(recover).toHaveBeenCalledOnce();
+    window.removeEventListener("lj:pwa-recover", recover);
   });
 
   it("o evento do Vite avisa falhas de importação sem inferir o status HTTP", () => {

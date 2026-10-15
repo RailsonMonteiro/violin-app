@@ -118,6 +118,8 @@ for (const mobile of [false, true]) {
         C
       );
       expect(await page.evaluate(() => document.body.dataset.build)).toBe(B);
+      // A resposta do cache pode chegar enquanto activate ainda aguarda clients.claim().
+      await page.waitForFunction(() => navigator.serviceWorker.controller?.state === "activated");
       await page.reload();
       await page.waitForFunction(
         (build) => document.body.dataset.build === build && document.body.dataset.mounted === "yes",

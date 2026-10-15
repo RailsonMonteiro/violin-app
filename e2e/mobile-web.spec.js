@@ -324,6 +324,7 @@ test("Biblioteca de Mídia alterna entre acervo e playlist em 320×568", async (
   const enfileirar = imported.getByRole("button", { name: "Adicionar à playlist" });
   await expectTouchTarget(enfileirar);
   await enfileirar.tap();
+  await expect(tabs.last()).toContainText("(1)");
   await expect(page.getByRole("dialog", { name: "Renomear" })).toBeHidden();
   await tabs.last().tap();
   await expect(page.locator(".media-playlist-item")).toContainText("mobile-e2e.png");

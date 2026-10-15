@@ -425,7 +425,7 @@ import { ref, computed, onMounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import $userdata from "@/helpers/UserData";
 import { KEYS } from "@/constants/UserDataKeys";
-import { useSyncManager } from "@/composables/useSyncManager";
+import { useSyncManager, CatalogIncompleteError } from "@/composables/useSyncManager";
 import type { BibleVersion } from "@/types/Bible";
 import { ICONS } from "@/config/Icons";
 import DontShowAgainCheckbox from "@/components/inputs/DontShowAgainCheckbox.vue";
@@ -738,7 +738,9 @@ async function performDownload(
   } catch (e) {
     console.error("[StartupCheck] download:", e);
     sync.downloadCompletedMsg.value =
-      (e as Error).message || t("options.collections_download.collect_failed");
+      e instanceof CatalogIncompleteError
+        ? t("options.collections_download.catalog_incomplete")
+        : (e as Error).message || t("options.collections_download.collect_failed");
   }
 
   view.value = "summary";

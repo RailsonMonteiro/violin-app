@@ -3,6 +3,8 @@ import { fetchWithTimeout, NET_TIMEOUT } from "@/helpers/Http";
 import { reportReliabilityEvent, reportReliabilityFailure } from "@/helpers/ReliabilityDiagnostics";
 export const PWA_UPDATE_INTERVAL_MS = 15 * 60 * 1000;
 const UPDATE_TIMEOUT_MS = 30_000;
+const RETRY_INITIAL_MS = 15_000;
+const RETRY_MAX_MS = 5 * 60_000;
 
 export interface PwaUpdateState {
   status:
@@ -48,20 +50,67 @@ export function createPwaUpdateController(options: UpdateOptions) {
   let applying: Promise<boolean> | null = null;
   let disposed = false;
   let activation: (() => void) | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let retryDelay = RETRY_INITIAL_MS;
+  const failures = new Map<string, { started: number; attempts: number }>();
+  const observedRegistrations = new WeakSet<ServiceWorkerRegistration>();
+  const observedWorkers = new WeakSet<ServiceWorker>();
   const cleanups: Array<() => void> = [];
 
   const publish = (patch: Partial<PwaUpdateState>) => {
     if (disposed) return;
     const previous = state.status;
     state = { ...state, ...patch };
+    if (patch.status === "current" || patch.status === "ready") {
+      clearTimeout(retryTimer);
+      retryTimer = undefined;
+      retryDelay = RETRY_INITIAL_MS;
+      for (const [stage, failure] of failures) {
+        reportReliabilityEvent("pwa_update_recovered", {
+          stage,
+          attempts: failure.attempts,
+          recovery_ms: Date.now() - failure.started,
+          update_status: state.status,
+          loaded_build: options.loadedBuildId ?? null,
+          active_build: activeBuildId,
+        });
+      }
+      failures.clear();
+    }
     if (previous !== state.status)
       reportReliabilityEvent("pwa_update_state", {
         status: state.status,
+        // Campo novo evita a inferência histórica de `status` como número no PostHog.
+        update_status: state.status,
         ready: state.ready,
         loaded_build: options.loadedBuildId ?? null,
         active_build: activeBuildId,
       });
     if (!disposed) onState({ ...state });
+  };
+  const failed = (stage: string, error: unknown) => {
+    if (disposed) return;
+    const previous = failures.get(stage);
+    const failure = {
+      started: previous?.started ?? Date.now(),
+      attempts: (previous?.attempts ?? 0) + 1,
+    };
+    failures.set(stage, failure);
+    reportReliabilityFailure("pwa_update_failed", error, {
+      stage,
+      attempt: failure.attempts,
+      update_status: state.status,
+      loaded_build: options.loadedBuildId ?? null,
+      active_build: activeBuildId,
+    });
+    if (!state.ready) publish({ status: online() ? "error" : "offline" });
+    if (retryTimer === undefined && !state.ready) {
+      retryTimer = setTimeout(() => {
+        retryTimer = undefined;
+        if (!disposed && online() && document_.visibilityState === "visible") void check();
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS);
+    }
   };
   const ready = () => publish({ ready: true, status: applying ? "applying" : "ready" });
   // Leitura passa pelo precache do controlador ativo. Assim um documento A
@@ -76,11 +125,7 @@ export function createPwaUpdateController(options: UpdateOptions) {
       if (activeId !== options.loadedBuildId && !disposed) ready();
       return true;
     } catch (error) {
-      reportReliabilityFailure("pwa_update_failed", error, {
-        stage: "read_build",
-        loaded_build: options.loadedBuildId,
-      });
-      if (!state.ready) publish({ status: online() ? "error" : "offline" });
+      failed("read_build", error);
       return false;
     }
   };
@@ -94,7 +139,10 @@ export function createPwaUpdateController(options: UpdateOptions) {
       return await Promise.race([
         operation,
         new Promise<never>((_, reject) => {
-          timeout = setTimeout(() => reject(new Error("PWA update timeout")), UPDATE_TIMEOUT_MS);
+          timeout = setTimeout(
+            () => reject(new DOMException("PWA update timeout", "TimeoutError")),
+            UPDATE_TIMEOUT_MS
+          );
         }),
       ]);
     } finally {
@@ -102,7 +150,8 @@ export function createPwaUpdateController(options: UpdateOptions) {
     }
   };
   const observeWorker = (worker: ServiceWorker | null) => {
-    if (!worker) return;
+    if (!worker || observedWorkers.has(worker)) return;
+    observedWorkers.add(worker);
     const changed = () => {
       if (worker.state === "installed") {
         if (registration?.waiting === worker && observedController) ready();
@@ -112,12 +161,7 @@ export function createPwaUpdateController(options: UpdateOptions) {
           if (verified && !state.ready) publish({ status: "current" });
         });
       } else if (worker.state === "redundant" && !state.ready) {
-        reportReliabilityFailure(
-          "pwa_update_failed",
-          new Error("A instalação do novo código não foi concluída"),
-          { stage: "install_worker" }
-        );
-        publish({ status: "error" });
+        failed("install_worker", new Error("A instalação do novo código não foi concluída"));
       }
     };
     listen(worker, "statechange", changed);
@@ -136,17 +180,24 @@ export function createPwaUpdateController(options: UpdateOptions) {
     }
   });
 
-  const register = () =>
-    bounded(
-      serviceWorker.register(options.swUrl, {
-        scope: options.scope,
-        updateViaCache: "none",
-      })
-    )
-      .then(async (value) => {
-        registration = value;
+  const register = () => {
+    // O timeout limita a espera da UI, não cancela register() no navegador.
+    // Observe o resultado nativo mesmo se chegar tarde, sem perder updatefound.
+    const operation = Promise.resolve()
+      .then(() =>
+        serviceWorker.register(options.swUrl, {
+          scope: options.scope,
+          updateViaCache: "none",
+        })
+      )
+      .then((value) => {
         if (disposed) return value;
-        listen(value, "updatefound", () => observeWorker(value.installing));
+        if (registration && registration !== value) return registration;
+        registration = value;
+        if (!observedRegistrations.has(value)) {
+          observedRegistrations.add(value);
+          listen(value, "updatefound", () => observeWorker(value.installing));
+        }
         observeWorker(value.installing);
         if (value.waiting && serviceWorker.controller) ready();
         if (
@@ -156,16 +207,19 @@ export function createPwaUpdateController(options: UpdateOptions) {
         )
           ready();
         observedController = serviceWorker.controller;
-        const verified = await inspectBuild();
-        if (verified && !value.installing && !state.ready)
-          publish({ status: online() ? "current" : "offline" });
+        void inspectBuild().then((verified) => {
+          if (verified && !value.installing && !state.ready)
+            publish({ status: online() ? "current" : "offline" });
+        });
         return value;
-      })
-      .catch((error) => {
-        reportReliabilityFailure("pwa_update_failed", error, { stage: "register" });
-        publish({ status: online() ? "error" : "offline" });
-        return null;
       });
+    return bounded(operation).catch((error) => {
+      // Outra tentativa/registro tardio já pode ter restabelecido o monitor.
+      if (registration) return registration;
+      failed("register", error);
+      return null;
+    });
+  };
   let registered = register();
 
   async function check(): Promise<void> {
@@ -182,9 +236,11 @@ export function createPwaUpdateController(options: UpdateOptions) {
       }
       if (!value || disposed) return;
       if (!state.ready) publish({ status: "checking" });
+      let stage = "check";
       try {
         await bounded(value.update());
         const installing = value.installing;
+        stage = "install_worker";
         if (
           installing &&
           installing.state !== "installed" &&
@@ -218,8 +274,7 @@ export function createPwaUpdateController(options: UpdateOptions) {
         else if (verified && !value.installing && !state.ready) publish({ status: "current" });
         publish({ lastCheckedAt: Date.now() });
       } catch (error) {
-        reportReliabilityFailure("pwa_update_failed", error, { stage: "check" });
-        if (!state.ready) publish({ status: "error" });
+        failed(stage, error);
       }
     })().finally(() => {
       checking = null;
@@ -243,6 +298,27 @@ export function createPwaUpdateController(options: UpdateOptions) {
               waiting.postMessage({ type: "SKIP_WAITING" });
             })
           );
+        }
+        // controllerchange pode ocorrer durante activate/clients.claim().
+        // Uma navegação nessa janela pode ficar aguardando a ativação do SW.
+        const active = serviceWorker.controller;
+        if (!active) throw new Error("Controlador da atualização indisponível");
+        let stop = () => {};
+        try {
+          await bounded(
+            new Promise<void>((resolve, reject) => {
+              const changed = () => {
+                if (active.state === "activated") resolve();
+                else if (active.state === "redundant")
+                  reject(new Error("Ativação da atualização interrompida"));
+              };
+              active.addEventListener("statechange", changed);
+              stop = () => active.removeEventListener("statechange", changed);
+              changed();
+            })
+          );
+        } finally {
+          stop();
         }
         if (!canReload() || disposed) return false;
         options.reload(); // A janela já verificou atividade e persistiu as alterações.
@@ -282,6 +358,7 @@ export function createPwaUpdateController(options: UpdateOptions) {
     dispose() {
       disposed = true;
       clearInterval(interval);
+      clearTimeout(retryTimer);
       cleanups.forEach((cleanup) => cleanup());
       activation?.();
       activation = null;
