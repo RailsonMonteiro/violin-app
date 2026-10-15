@@ -601,6 +601,7 @@
       "loading": "Carregando coletâneas…",
       "preparing": "Preparando lista de arquivos… ({done}/{total})",
       "collect_failed": "Falha ao coletar lista de arquivos.",
+      "catalog_incomplete": "Não foi possível recuperar o catálogo das coletâneas. Verifique a conexão e tente baixar novamente. Os arquivos já baixados foram mantidos.",
       "no_files": "Nenhum arquivo encontrado para os álbuns selecionados.",
       "already_up_to_date": "Todos os arquivos selecionados já estão no disco.",
       "completed": "Concluído: {downloaded} baixados, {failed} falharam.",

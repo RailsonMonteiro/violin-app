@@ -7,6 +7,7 @@ import $idb from "@/helpers/IndexedDB";
 import $userdata from "@/helpers/UserData";
 import { KEYS, moduleShowInMainMenu } from "@/constants/UserDataKeys";
 import { DB_TABLE } from "@/constants/DbTables";
+import { AUDIO_EXT } from "@/constants/FileTypes";
 import type { BibleVersion } from "@/types/Bible";
 import type { BundleProgress } from "@/types/Database";
 import { useBackgroundTasks } from "@/composables/useBackgroundTasks";
@@ -164,6 +165,13 @@ let bundleProgressAt = Date.now();
 class CollectStalledError extends Error {
   constructor() {
     super("collect_stalled");
+  }
+}
+
+export class CatalogIncompleteError extends Error {
+  constructor(readonly dataset: string) {
+    super(`Catálogo local incompleto: ${dataset}`);
+    this.name = "CatalogIncompleteError";
   }
 }
 
@@ -426,7 +434,7 @@ export function useSyncManager() {
             const state = await localStateOfFileList(files);
             if (state.origin) cachedAlbums.add(id);
             if (state.origin === "classic") classicAlbums.add(id);
-            if (!state.origin && state.have > 0) {
+            if (!state.origin && state.partial) {
               partialAlbums.set(id, { have: state.have, total: state.total });
             }
           } catch (e) {
@@ -445,7 +453,7 @@ export function useSyncManager() {
         const hymFiles = await collectHymnalFileList(hymnalIds, { localOnly: true });
         const state = await localStateOfFileList(hymFiles);
         hymnalCached = hymFiles.length > 0 && !!state.origin;
-        if (!hymnalCached && state.have > 0) {
+        if (!hymnalCached && state.partial) {
           partialHymnal = { have: state.have, total: state.total };
         }
       } catch (e) {
@@ -461,7 +469,7 @@ export function useSyncManager() {
         const hymFiles = await collectHymnalFileList(hymnal1996Ids, { localOnly: true });
         const state = await localStateOfFileList(hymFiles);
         hymnal1996Cached = hymFiles.length > 0 && !!state.origin;
-        if (!hymnal1996Cached && state.have > 0) {
+        if (!hymnal1996Cached && state.partial) {
           partialHymnal1996 = { have: state.have, total: state.total };
         }
       } catch (e) {
@@ -920,17 +928,39 @@ export function useSyncManager() {
     try {
       return await attempt();
     } catch (error) {
-      if (!(error instanceof CollectStalledError)) throw error;
-      console.warn("[useSyncManager] collectFiles: sem progresso; reinstalando o catálogo");
-      void import("@/helpers/Telemetry")
-        .then(({ default: Telemetry }) => Telemetry.track("sync_collect_stalled", {}))
-        .catch(() => {});
+      if (!(error instanceof CollectStalledError) && !(error instanceof CatalogIncompleteError))
+        throw error;
+      const details = {
+        stage: "collect",
+        ...(error instanceof CatalogIncompleteError ? { dataset: error.dataset } : {}),
+      };
+      reportReliabilityFailure(
+        error instanceof CatalogIncompleteError
+          ? "sync_catalog_incomplete"
+          : "sync_collect_stalled",
+        error,
+        details
+      );
       cancelBundle();
-      await untilStalled(
+      const installed = await untilStalled(
         () => downloadBundle({ catalogOnly: true, force: true }).catch(() => false),
         CATALOG_RECOVERY_WAIT_MS
       ).catch(() => false);
-      return attempt();
+      try {
+        const files = await attempt();
+        reportReliabilityEvent("sync_catalog_recovered", {
+          ...details,
+          bundle_installed: installed,
+        });
+        return files;
+      } catch (retryError) {
+        reportReliabilityFailure("sync_catalog_recovery_failed", retryError, {
+          ...details,
+          ...(retryError instanceof CatalogIncompleteError ? { dataset: retryError.dataset } : {}),
+          bundle_installed: installed,
+        });
+        throw retryError;
+      }
     }
   }
 
@@ -956,9 +986,9 @@ export function useSyncManager() {
       albumIds
         .filter((id) => !disabled.includes(Number(id)))
         .map(async (id) => {
-          const album = await fetchJson<MusicData>(`album_${id}`);
+          const album = await fetchJson<MusicData>(`album_${id}`, { localOnly: true });
           alive();
-          if (!album) return;
+          if (!album) throw new CatalogIncompleteError(`album_${id}`);
           const f = toFile(album.url_image);
           if (f) files.set(f.remote, f);
           album.musics?.forEach((m) => allMusicIds.add(Number(m.id_music)));
@@ -976,6 +1006,7 @@ export function useSyncManager() {
     const musicIds = [...allMusicIds];
     onProgress?.(0, musicIds.length);
     await collectMusicFiles(musicIds, files, {
+      localOnly: true,
       onBatch: (done) => {
         alive();
         onProgress?.(done, musicIds.length);
@@ -991,10 +1022,10 @@ export function useSyncManager() {
   ): Promise<FileEntry[]> {
     // Montar a lista a partir de um catálogo de versão anterior baixaria pelos
     // endereços antigos; a leitura local do scan não deve gerar rede.
-    if (!localOnly) await refreshCatalogBounded();
+    if (!localOnly) return collectFiles(new Set([albumId]), false, []);
     const files = new Map<string, FileEntry>();
     const album = await fetchJson<MusicData>(`album_${albumId}`, { localOnly });
-    if (!album) return [];
+    if (!album) throw new CatalogIncompleteError(`album_${albumId}`);
     const f = toFile(album.url_image);
     if (f) files.set(f.remote, f);
     const musicIds = (album.musics || [])
@@ -1008,6 +1039,7 @@ export function useSyncManager() {
     hymnalIds: number[],
     { localOnly = false }: { localOnly?: boolean } = {}
   ): Promise<FileEntry[]> {
+    if (!localOnly) return collectFiles(new Set(), true, hymnalIds);
     const files = new Map<string, FileEntry>();
     await collectMusicFiles(hymnalIds, files, { localOnly });
     return [...files.values()];
@@ -1016,7 +1048,7 @@ export function useSyncManager() {
   async function collectMusicFiles(
     musicIds: number[],
     files: Map<string, FileEntry>,
-    { localOnly = false, onBatch }: { localOnly?: boolean; onBatch?: (done: number) => void } = {}
+    { localOnly = true, onBatch }: { localOnly?: boolean; onBatch?: (done: number) => void } = {}
   ): Promise<void> {
     // `scanCache` pode chamar esta função para até três álbuns ao mesmo tempo.
     // Um lote fixo de quatro limita a rajada de leitura e persistência no IDB
@@ -1027,6 +1059,7 @@ export function useSyncManager() {
       await Promise.all(
         slice.map(async (mid) => {
           const m = await fetchJson<MusicData>(`music_${mid}`, { localOnly });
+          if (!m) throw new CatalogIncompleteError(`music_${mid}`);
           addMusicToFileMap(m, files);
         })
       );
@@ -1072,8 +1105,9 @@ export function useSyncManager() {
   /** Completa ou quantos arquivos faltam: a mesma leitura do disco, sem custo extra. */
   async function localStateOfFileList(
     files: FileEntry[]
-  ): Promise<{ origin: FileOrigin; have: number; total: number }> {
-    if (!files.length || !Platform.storage?.checkLocal) return { origin: false, have: 0, total: 0 };
+  ): Promise<{ origin: FileOrigin; have: number; total: number; partial: boolean }> {
+    if (!files.length || !Platform.storage?.checkLocal)
+      return { origin: false, have: 0, total: 0, partial: false };
     const remotes = files.map((f) => f.remote);
     const local = (await Platform.storage.checkLocal(remotes)) as LocalCheckResult;
     const have = remotes.filter((r) => local[r] === "own" || local[r] === "classic").length;
@@ -1082,9 +1116,18 @@ export function useSyncManager() {
         origin: remotes.some((r) => local[r] === "classic") ? "classic" : "own",
         have,
         total: remotes.length,
+        partial: false,
       };
     }
-    return { origin: false, have, total: remotes.length };
+    // Fundos são compartilhados entre o hinário e muitos álbuns; capas também
+    // entram no cache ao navegar. Isso não significa que o álbum foi baixado.
+    const audio = remotes.filter((remote) =>
+      AUDIO_EXT.includes(remote.split(/[?#]/)[0].split(".").pop()?.toLowerCase() ?? "")
+    );
+    const partial = audio.length
+      ? audio.some((remote) => local[remote] === "own" || local[remote] === "classic")
+      : have > 0;
+    return { origin: false, have, total: remotes.length, partial };
   }
   async function isFileListComplete(files: FileEntry[]): Promise<boolean> {
     if (!files.length || !Platform.storage?.checkLocal) return false;
@@ -1563,7 +1606,8 @@ export function useSyncManager() {
     cachedAlbums: Set<number>,
     hymnalCached: boolean,
     hymnal1996Cached = false,
-    hymnal1996Ids: number[] = []
+    hymnal1996Ids: number[] = [],
+    hymnalIds: number[] = []
   ): Promise<DiskUsage> {
     if (!Platform.storage?.sizeOfPaths) {
       return { bytes: 0, fileCount: 0, albumCount: 0, hymnalCached: false };
@@ -1582,19 +1626,19 @@ export function useSyncManager() {
       const slice = albumIds.slice(i, i + ALBUM_BATCH);
       await Promise.all(
         slice.map(async (id) => {
-          const files = await collectAlbumFileList(id);
+          const files = await collectAlbumFileList(id, { localOnly: true });
           files.forEach((f) => remotes.add(f.remote));
         })
       );
     }
 
     if (hymnalCached) {
-      const hymFiles = await collectHymnalFileList(albumIds);
+      const hymFiles = await collectHymnalFileList(hymnalIds, { localOnly: true });
       hymFiles.forEach((f) => remotes.add(f.remote));
     }
 
     if (hymnal1996Cached && hymnal1996Ids.length) {
-      const hymFiles = await collectHymnalFileList(hymnal1996Ids);
+      const hymFiles = await collectHymnalFileList(hymnal1996Ids, { localOnly: true });
       hymFiles.forEach((f) => remotes.add(f.remote));
     }
 

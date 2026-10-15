@@ -875,7 +875,11 @@ import { KEYS, moduleShowInMainMenu } from "@/constants/UserDataKeys";
 import { ICONS } from "@/config/Icons";
 import { LjButton, LjIcon, LjProgress, LjTabs } from "@/components/ui";
 import type { LjTab } from "@/components/ui";
-import { useSyncManager, type PartialProgress } from "@/composables/useSyncManager";
+import {
+  useSyncManager,
+  CatalogIncompleteError,
+  type PartialProgress,
+} from "@/composables/useSyncManager";
 import { useAppInstall } from "@/composables/useAppInstall";
 import { requestPersistence, webStorageUsage, type WebStorageUsage } from "@/helpers/WebFileStore";
 import { useBackgroundTasks } from "@/composables/useBackgroundTasks";
@@ -1332,7 +1336,11 @@ async function startDownloads(): Promise<void> {
   } catch (e) {
     console.error("[Sincronizar] collectFiles:", e);
     preparing.value = false;
-    sync.downloadCompletedMsg.value = t("options.collections_download.collect_failed");
+    sync.downloadCompletedMsg.value = t(
+      e instanceof CatalogIncompleteError
+        ? "options.collections_download.catalog_incomplete"
+        : "options.collections_download.collect_failed"
+    );
     return;
   }
   preparing.value = false;
@@ -1370,7 +1378,7 @@ async function saveSelection(): Promise<void> {
     );
 
     for (const id of albumsToRemove) {
-      const files = await sync.collectAlbumFileList(id);
+      const files = await sync.collectAlbumFileList(id, { localOnly: true });
       await sync.removeFilesFromCache(files);
       cachedAlbumsBaseline.value.delete(id);
       removedAlbums += 1;
@@ -1378,14 +1386,14 @@ async function saveSelection(): Promise<void> {
     cachedAlbumsBaseline.value = new Set(cachedAlbumsBaseline.value);
 
     if (cachedHymnalBaseline.value && !selectedHymnal.value) {
-      const files = await sync.collectHymnalFileList(hymnalIds.value);
+      const files = await sync.collectHymnalFileList(hymnalIds.value, { localOnly: true });
       await sync.removeFilesFromCache(files);
       cachedHymnalBaseline.value = false;
       removedHymnal = true;
     }
 
     if (cachedHymnal1996Baseline.value && !selectedHymnal1996.value) {
-      const files = await sync.collectHymnalFileList(hymnal1996Ids.value);
+      const files = await sync.collectHymnalFileList(hymnal1996Ids.value, { localOnly: true });
       await sync.removeFilesFromCache(files);
       cachedHymnal1996Baseline.value = false;
       removedHymnal1996 = true;
@@ -1429,10 +1437,10 @@ function partialPercent(progress: PartialProgress): string {
   return t("options.collections_download.partial", { percent });
 }
 
-async function filesOfPartial(target: PartialTarget): Promise<any[]> {
-  if (target.album !== undefined) return sync.collectAlbumFileList(target.album);
+async function filesOfPartial(target: PartialTarget, localOnly = false): Promise<any[]> {
+  if (target.album !== undefined) return sync.collectAlbumFileList(target.album, { localOnly });
   const ids = target.hymnal === "1996" ? hymnal1996Ids.value : hymnalIds.value;
-  return sync.collectHymnalFileList(ids);
+  return sync.collectHymnalFileList(ids, { localOnly });
 }
 
 /** Baixa só o que falta: o que já está no disco é reconhecido e pulado. */
@@ -1453,7 +1461,11 @@ async function continuePartial(target: PartialTarget): Promise<void> {
     files = await filesOfPartial(target);
   } catch (e) {
     console.error("[Sincronizar] continuePartial:", e);
-    sync.downloadCompletedMsg.value = t("options.collections_download.collect_failed");
+    sync.downloadCompletedMsg.value = t(
+      e instanceof CatalogIncompleteError
+        ? "options.collections_download.catalog_incomplete"
+        : "options.collections_download.collect_failed"
+    );
     return;
   } finally {
     preparing.value = false;
@@ -1491,7 +1503,7 @@ async function discardPartial(target: PartialTarget): Promise<void> {
 
   saving.value = true;
   try {
-    const files = await filesOfPartial(target);
+    const files = await filesOfPartial(target, true);
     await sync.removeFilesFromCache(files);
     sync.downloadCompletedMsg.value = t("options.collections_download.partial_discarded", {
       name,
@@ -1902,7 +1914,8 @@ async function refreshDiskUsage(): Promise<void> {
       cachedAlbumsBaseline.value,
       cachedHymnalBaseline.value,
       cachedHymnal1996Baseline.value,
-      hymnal1996Ids.value
+      hymnal1996Ids.value,
+      hymnalIds.value
     );
     diskUsage.value = result;
   } catch (e) {

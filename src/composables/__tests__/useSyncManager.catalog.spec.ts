@@ -18,6 +18,8 @@ const h = vi.hoisted(() => ({
   dbGet: vi.fn(),
   dbGetLocal: vi.fn(),
   storedIds: vi.fn(),
+  track: vi.fn(),
+  captureException: vi.fn(),
 }));
 
 vi.mock("vue-i18n", () => ({
@@ -36,7 +38,9 @@ vi.mock("@/helpers/BundleInstaller", () => ({
 vi.mock("@/helpers/BibleBundleInstaller", () => ({
   default: { isInstalled: h.bibleIsInstalled, install: h.bibleInstall },
 }));
-vi.mock("@/helpers/Telemetry", () => ({ default: { track: vi.fn() } }));
+vi.mock("@/helpers/Telemetry", () => ({
+  default: { track: h.track, captureException: h.captureException },
+}));
 vi.mock("@/helpers/Database", () => ({
   default: { get: h.dbGet, getLocal: h.dbGetLocal, getStoredIdsForPrefix: h.storedIds },
   setDatabaseTimingReporter: vi.fn(),
@@ -96,6 +100,8 @@ beforeEach(() => {
   h.dbGet.mockReset();
   h.dbGetLocal.mockReset();
   h.storedIds.mockReset();
+  h.track.mockReset();
+  h.captureException.mockReset();
 
   h.hasBundleMarker.mockResolvedValue(false);
   h.bibleIsInstalled.mockResolvedValue(false);
@@ -260,6 +266,61 @@ describe("Verificação Inicial leve", () => {
     expect(result.cachedAlbums).toEqual(new Set());
     expect(result.partialAlbums?.size ?? 0).toBe(0);
   });
+
+  it.each([true, false])(
+    "metadado ausente não vira álbum completo (desktop=%s)",
+    async (desktop) => {
+      h.hasBundleMarker.mockResolvedValue(true);
+      h.platform.isDesktop = desktop;
+      h.dbGetLocal.mockImplementation(async (key: string) =>
+        key === "music_2" ? null : (CATALOG[key] ?? null)
+      );
+      h.platform.storage = {
+        checkLocal: vi.fn(async (paths: string[]) =>
+          Object.fromEntries(paths.map((path) => [path, "own"]))
+        ),
+      };
+      const sync = await mountSync();
+      const result = await sync.scanCache("pt", CATALOG.pt_categories as never, [1, 2]);
+      expect(result.cachedAlbums.size).toBe(0);
+      expect(result.hymnalCached).toBe(false);
+      expect(h.dbGet).not.toHaveBeenCalled();
+      expect(h.fullInstall).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([true, false])(
+    "fundos e capas sem áudio não fazem outros álbuns parecerem parciais (desktop=%s)",
+    async (desktop) => {
+      h.hasBundleMarker.mockResolvedValue(true);
+      h.platform.isDesktop = desktop;
+      h.dbGetLocal.mockImplementation(async (key: string) =>
+        key === "music_1"
+          ? {
+              ...(CATALOG.music_1 as object),
+              url_image: "/images/capa.jpg",
+              lyric: [{ url_image: "/images/hasd_609.jpg" }],
+            }
+          : (CATALOG[key] ?? null)
+      );
+      const present = new Set(["/images/capa.jpg", "/images/hasd_609.jpg"]);
+      h.platform.storage = {
+        checkLocal: vi.fn(async (paths: string[]) =>
+          Object.fromEntries(paths.map((path) => [path, present.has(path) ? "own" : false]))
+        ),
+      };
+      const sync = await mountSync();
+      let result = await sync.scanCache("pt", CATALOG.pt_categories as never, []);
+      expect(result.cachedAlbums.size).toBe(0);
+      expect(result.partialAlbums?.size).toBe(0);
+      present.add("/musics/pt/A/1.opus");
+      result = await sync.scanCache("pt", CATALOG.pt_categories as never, [], [], { force: true });
+      expect(result.partialAlbums?.get(7)).toEqual({ have: 3, total: 4 });
+      present.clear();
+      result = await sync.scanCache("pt", CATALOG.pt_categories as never, [], [], { force: true });
+      expect(result.partialAlbums?.size).toBe(0);
+    }
+  );
 });
 
 describe("lista de arquivos se recupera sozinha", () => {
@@ -267,6 +328,81 @@ describe("lista de arquivos se recupera sozinha", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it.each(["album_7", "music_2"])("recupera %s pelo bundle sem GET individual", async (missing) => {
+    h.hasBundleMarker.mockResolvedValue(true);
+    let repaired = false;
+    h.dbGetLocal.mockImplementation(async (key: string) =>
+      !repaired && key === missing ? null : (CATALOG[key] ?? null)
+    );
+    h.fullInstall.mockImplementation(async () => {
+      repaired = true;
+    });
+    const sync = await mountSync();
+    const files = await sync.collectFiles(new Set([7]), false, []);
+    expect(files.map((f) => f.remote)).toEqual(["/musics/pt/A/1.opus", "/musics/pt/A/2.opus"]);
+    expect(h.fullInstall).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ catalogOnly: true, force: true })
+    );
+    expect(h.dbGet).not.toHaveBeenCalled();
+  });
+
+  it("interrompe com o registro ausente quando o bundle não repara, sem fila incompleta nem tempestade de GETs", async () => {
+    h.dbGetLocal.mockImplementation(async (key: string) =>
+      key === "music_2" ? null : (CATALOG[key] ?? null)
+    );
+    h.fullInstall.mockRejectedValue(new Error("offline"));
+    const sync = await mountSync();
+    await expect(sync.collectAlbumFileList(7)).rejects.toThrow(
+      "Catálogo local incompleto: music_2"
+    );
+    expect(h.fullInstall).toHaveBeenCalledTimes(1);
+    expect(h.dbGet).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(h.track).toHaveBeenCalledWith(
+        "sync_catalog_recovery_failed",
+        expect.objectContaining({
+          dataset: "music_2",
+          bundle_installed: false,
+          error_name: "CatalogIncompleteError",
+        })
+      )
+    );
+    expect(h.captureException).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Catálogo local incompleto: music_2" }),
+      expect.objectContaining({ source: "sync_catalog_recovery_failed", dataset: "music_2" })
+    );
+  });
+
+  it("continuar hinário também recupera o catálogo pelo pacote", async () => {
+    let repaired = false;
+    h.dbGetLocal.mockImplementation(async (key: string) =>
+      repaired ? (CATALOG[key] ?? null) : null
+    );
+    h.fullInstall.mockImplementation(async () => {
+      repaired = true;
+    });
+    const sync = await mountSync();
+    expect(await sync.collectHymnalFileList([1, 2])).toHaveLength(2);
+    expect(h.fullInstall).toHaveBeenCalledTimes(1);
+    expect(h.dbGet).not.toHaveBeenCalled();
+  });
+
+  it("uso em disco lê o hinário correto, sem renovar catálogo nem buscar metadados", async () => {
+    const sizeOfPaths = vi.fn(async (paths: string[]) => ({
+      bytes: 100 * paths.length,
+      count: paths.length,
+    }));
+    h.platform.storage = { sizeOfPaths };
+    const sync = await mountSync();
+    expect(await sync.refreshDiskUsage(new Set(), true, false, [], [1, 2])).toMatchObject({
+      bytes: 200,
+      fileCount: 2,
+    });
+    expect(sizeOfPaths).toHaveBeenCalledWith(["/musics/pt/A/1.opus", "/musics/pt/A/2.opus"]);
+    expect(h.fullInstall).not.toHaveBeenCalled();
+    expect(h.dbGet).not.toHaveBeenCalled();
   });
 
   it("renovação do catálogo pendurada não segura a lista: segue com o catálogo do disco", async () => {
@@ -280,12 +416,12 @@ describe("lista de arquivos se recupera sozinha", () => {
     const files = await pending;
 
     expect(files.length).toBeGreaterThan(0);
-    expect(catalogReads()).toContain("album_7");
+    expect(localCatalogReads()).toContain("album_7");
   });
 
   it("montagem que para de andar reinstala o catálogo e tenta de novo uma vez", async () => {
     let firstRead = true;
-    h.dbGet.mockImplementation(async (key: string) => {
+    h.dbGetLocal.mockImplementation(async (key: string) => {
       if (key === "album_7" && firstRead) {
         firstRead = false;
         return never();
@@ -306,7 +442,7 @@ describe("lista de arquivos se recupera sozinha", () => {
   });
 
   it("se parar de novo, falha em vez de ficar preparando para sempre", async () => {
-    h.dbGet.mockImplementation(async (key: string) =>
+    h.dbGetLocal.mockImplementation(async (key: string) =>
       key === "album_7" ? never() : (CATALOG[key] ?? null)
     );
     const sync = await mountSync();
@@ -408,7 +544,7 @@ describe("catálogo renovado a cada versão do app", () => {
     const files = await sync.collectAlbumFileList(7);
 
     expect(h.events.indexOf("bundle")).toBeGreaterThanOrEqual(0);
-    expect(h.events.indexOf("bundle")).toBeLessThan(h.events.indexOf("get:album_7"));
+    expect(h.events.indexOf("bundle")).toBeLessThan(h.events.indexOf("local:album_7"));
     expect(files.length).toBeGreaterThan(0);
   });
 
@@ -538,15 +674,15 @@ describe("abrir o Sincronizar (desktop, primeiro uso)", () => {
     expect(h.fullInstall).not.toHaveBeenCalled();
   });
 
-  it("uma seleção explícita busca somente seus metadados sob demanda", async () => {
+  it("uma seleção explícita lê os metadados locais sem GET por música", async () => {
     const sync = await mountSync();
 
     await sync.collectFiles(new Set([7]), false, []);
 
     expect(h.fullInstall).not.toHaveBeenCalled();
-    expect(catalogReads()).toContain("album_7");
-    expect(catalogReads()).toContain("music_1");
-    expect(catalogReads()).toContain("music_2");
+    expect(localCatalogReads()).toContain("album_7");
+    expect(localCatalogReads()).toContain("music_1");
+    expect(localCatalogReads()).toContain("music_2");
   });
 
   it("na web não baixa o bundle geral para ler as listas", async () => {
