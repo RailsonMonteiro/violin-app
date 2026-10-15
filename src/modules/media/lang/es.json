@@ -8,6 +8,7 @@
     "decode": "El archivo de audio parece estar dañado o incompleto. Inténtelo de nuevo.",
     "blocked": "El navegador bloqueó la reproducción. Toque reproducir de nuevo.",
     "not_loaded_offline": "No se pudo descargar este audio. Verifique la conexión y toque para intentar de nuevo.",
+    "local_read_failed": "No se pudo leer el audio guardado en este dispositivo. Toca para volver a intentarlo. Se conservaron tus descargas.",
     "offline_not_downloaded": "Sin internet, y esta canción no está descargada en este dispositivo. Conéctese, o descargue el álbum antes de quedarse sin conexión.",
     "close": "¿Quieres cerrar esta presentacion?",
     "close_audio": "¿Quieres detener la musica?",
