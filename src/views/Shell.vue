@@ -835,6 +835,23 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 
+/* Em telas baixas o aviso de atualização não pode reduzir a lista a zero.
+   Mantém o aviso visível e permite alcançar o conteúdo rolando a janela. */
+@media (max-height: 650px) {
+  .shell-root--web:has(> .pwa-update-notice) {
+    overflow-y: auto;
+  }
+
+  .shell-root--web:has(> .pwa-update-notice) .shell-main {
+    flex-shrink: 0;
+    min-height: max(320px, 100dvh);
+  }
+
+  .shell-root--web:has(> .pwa-update-notice) :deep(.footer) {
+    position: fixed;
+  }
+}
+
 @media (max-width: 700px) {
   .shell-root {
     --lj-sidebar-collapsed: 44px;
