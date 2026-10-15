@@ -36,6 +36,7 @@ interface UpdateOptions {
   reload: () => void;
   loadedBuildId?: string | null;
   readActiveBuildId?: () => Promise<string | null>;
+  readDeployedBuildId?: () => Promise<string | null>;
   initialController?: ServiceWorker | null;
 }
 
@@ -46,6 +47,9 @@ export function createPwaUpdateController(options: UpdateOptions) {
   let observedController =
     options.initialController === undefined ? serviceWorker.controller : options.initialController;
   let activeBuildId: string | null = null;
+  let registeredBuildId: string | null = null;
+  let registerAttempt = 0;
+  let acceptedRegisterAttempt = 0;
   let checking: Promise<void> | null = null;
   let applying: Promise<boolean> | null = null;
   let disposed = false;
@@ -180,20 +184,24 @@ export function createPwaUpdateController(options: UpdateOptions) {
     }
   });
 
-  const register = () => {
+  const register = (buildId?: string | null) => {
+    const attempt = ++registerAttempt;
+    const url = buildId ? `${options.swUrl}?build=${encodeURIComponent(buildId)}` : options.swUrl;
     // O timeout limita a espera da UI, não cancela register() no navegador.
     // Observe o resultado nativo mesmo se chegar tarde, sem perder updatefound.
     const operation = Promise.resolve()
       .then(() =>
-        serviceWorker.register(options.swUrl, {
+        serviceWorker.register(url, {
           scope: options.scope,
           updateViaCache: "none",
         })
       )
       .then((value) => {
         if (disposed) return value;
-        if (registration && registration !== value) return registration;
+        if (attempt < acceptedRegisterAttempt) return registration;
+        acceptedRegisterAttempt = attempt;
         registration = value;
+        registeredBuildId = buildId ?? null;
         if (!observedRegistrations.has(value)) {
           observedRegistrations.add(value);
           listen(value, "updatefound", () => observeWorker(value.installing));
@@ -215,12 +223,27 @@ export function createPwaUpdateController(options: UpdateOptions) {
       });
     return bounded(operation).catch((error) => {
       // Outra tentativa/registro tardio já pode ter restabelecido o monitor.
-      if (registration) return registration;
+      if (attempt < acceptedRegisterAttempt) return registration;
       failed("register", error);
       return null;
     });
   };
-  let registered = register();
+  const readDeployed = async () => {
+    try {
+      const deployed = await bounded(options.readDeployedBuildId!());
+      if (!deployed) throw new Error("Não foi possível identificar o código publicado");
+      return deployed;
+    } catch (error) {
+      failed("read_deployed_build", error);
+      return null;
+    }
+  };
+  // O HTML pode ser anterior ao SW que o bootstrap já começou a instalar.
+  // Não registre sua versão antiga por cima da publicação mais recente.
+  let registered = options.readDeployedBuildId
+    ? readDeployed().then((deployed) => (deployed && !disposed ? register(deployed) : null))
+    : register();
+  if (options.readDeployedBuildId) void inspectBuild();
 
   async function check(): Promise<void> {
     if (disposed || checking) return checking ?? undefined;
@@ -230,6 +253,17 @@ export function createPwaUpdateController(options: UpdateOptions) {
     }
     checking = (async () => {
       let value = registration ?? (await registered);
+      if (options.readDeployedBuildId) {
+        const deployed = await readDeployed();
+        if (!deployed || disposed) return;
+        // updateViaCache ignora o cache HTTP local, mas não o cache da CDN.
+        // A identidade publicada escolhe uma URL estável e nova por deploy.
+        if (!value || deployed !== registeredBuildId) {
+          registered = register(deployed);
+          value = await registered;
+          if (!value) return;
+        }
+      }
       if (!value && !disposed) {
         registered = register();
         value = await registered;
@@ -378,6 +412,26 @@ export function startPwaUpdates(initialController?: ServiceWorker | null) {
     return;
   }
   const scope = import.meta.env.BASE_URL || "/";
+  const readBuildId = async (deployed = false) => {
+    const url = new URL(`${scope}app-build.json`, window.location.origin);
+    // Este parâmetro não é ignorado pelo precache: consulta a publicação na rede.
+    if (deployed) url.searchParams.set("network", "1");
+    const response = await fetchWithTimeout(url, {
+      cache: "no-store",
+      timeout: NET_TIMEOUT.QUICK,
+      signal: AbortSignal.timeout(NET_TIMEOUT.QUICK),
+      source: deployed ? "pwa-deployed-build" : "pwa-build",
+    });
+    if (!response.ok) return null;
+    const body = await response.text();
+    if (body.length > 256) return null;
+    const value: unknown = JSON.parse(body);
+    if (!value || typeof value !== "object") return null;
+    const build = value as { version?: unknown; id?: unknown };
+    return build.version === 1 && typeof build.id === "string" && /^[a-f0-9-]{36}$/.test(build.id)
+      ? build.id
+      : null;
+  };
   controller = createPwaUpdateController({
     serviceWorker: navigator.serviceWorker,
     window,
@@ -387,26 +441,8 @@ export function startPwaUpdates(initialController?: ServiceWorker | null) {
     scope,
     initialController,
     loadedBuildId: document.querySelector<HTMLMetaElement>('meta[name="louvorja-build"]')?.content,
-    readActiveBuildId: async () => {
-      const response = await fetchWithTimeout(
-        new URL(`${scope}app-build.json`, window.location.origin),
-        {
-          cache: "no-store",
-          timeout: NET_TIMEOUT.QUICK,
-          signal: AbortSignal.timeout(NET_TIMEOUT.QUICK),
-          source: "pwa-build",
-        }
-      );
-      if (!response.ok) return null;
-      const body = await response.text();
-      if (body.length > 256) return null;
-      const value: unknown = JSON.parse(body);
-      if (!value || typeof value !== "object") return null;
-      const build = value as { version?: unknown; id?: unknown };
-      return build.version === 1 && typeof build.id === "string" && /^[a-f0-9-]{36}$/.test(build.id)
-        ? build.id
-        : null;
-    },
+    readActiveBuildId: () => readBuildId(),
+    readDeployedBuildId: () => readBuildId(true),
     onState: (state) => {
       snapshot = state;
       subscribers.forEach((subscriber) => subscriber(state));

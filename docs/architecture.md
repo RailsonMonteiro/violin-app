@@ -49,6 +49,13 @@ abertura, no retorno à rede/primeiro plano e a cada 15 minutos em primeiro plan
 com `updateViaCache: none`. A identidade de cada build está no HTML e em
 `app-build.json` precacheado: a comparação detecta um controlador mais recente
 mesmo após a ativação, sem depender da versão SemVer.
+Uma segunda leitura de `app-build.json?network=1` consulta a publicação fora do
+precache. O registro usa `sw.js?build=<id publicado>`: a URL muda por publicação,
+contornando respostas antigas da CDN mesmo quando ela ignora revalidação HTTP.
+Sem rede, a recuperação conserva o registro existente e pode aplicar código já
+guardado; não registra o HTML antigo sobre uma instalação mais recente.
+Antes da interface montar, também acompanha registros tardios e o fim da
+instalação para ativar um SW em espera; só recarrega após terminar a ativação.
 Falhas de registro, verificação e instalação têm novas tentativas automáticas
 com espera crescente de 15 segundos até 5 minutos, somente online e visível.
 O timeout de 30 segundos limita a espera sem descartar um registro nativo que

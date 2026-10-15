@@ -25,6 +25,7 @@ function setup({
   loaded = "A",
   active = "A",
   register: registerOverride = undefined as undefined | (() => Promise<unknown>),
+  deployed = undefined as undefined | (() => Promise<string | null>),
 } = {}) {
   const sw = Object.assign(new EventTarget(), { controller, register: vi.fn() });
   const reg = Object.assign(new EventTarget(), {
@@ -50,6 +51,7 @@ function setup({
     onState: (state) => states.push(state),
     loadedBuildId: loaded,
     readActiveBuildId,
+    readDeployedBuildId: deployed,
     reload,
   });
   const latest = () => states.at(-1)!;
@@ -443,5 +445,35 @@ describe("PwaUpdates", () => {
     h.online.mockReturnValue(false);
     h.window_.dispatchEvent(new Event("offline"));
     expect(h.latest()).toMatchObject({ status: "ready", ready: true });
+  });
+
+  it("contorna CDN antiga pela versão publicada e mantém a URL estável entre verificações", async () => {
+    const deployed = vi.fn().mockResolvedValue("B");
+    const h = boot({ loaded: "A", deployed });
+    await h.tick();
+    expect(h.sw.register).toHaveBeenCalledWith(
+      "/sw.js?build=B",
+      expect.objectContaining({ updateViaCache: "none" })
+    );
+    await h.instance.check();
+    expect(h.sw.register).toHaveBeenCalledTimes(1);
+    deployed.mockResolvedValue("C");
+    await h.instance.check();
+    expect(h.sw.register).toHaveBeenLastCalledWith("/sw.js?build=C", expect.anything());
+    expect(h.sw.register).toHaveBeenCalledTimes(2);
+    expect(h.reload).not.toHaveBeenCalled();
+  });
+
+  it("falha ao consultar publicação não registra o HTML antigo sobre uma instalação nova", async () => {
+    const deployed = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValue("B");
+    const h = boot({ loaded: "A", deployed });
+    await h.tick();
+    expect(h.sw.register).not.toHaveBeenCalled();
+    expect(h.latest().status).toBe("error");
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(h.sw.register).toHaveBeenCalledWith("/sw.js?build=B", expect.anything());
   });
 });

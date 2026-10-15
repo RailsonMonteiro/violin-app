@@ -7,6 +7,9 @@ function installPwaRecovery({ scope, build, storageKey, startupWaitMs }) {
   let checking = null;
   let registration = null;
   let banner = null;
+  let stopActivation = () => {};
+  const observed = new WeakSet();
+  const stopWorkers = [];
   let settle;
   const events = [];
   const ready = new Promise((resolve) => {
@@ -35,13 +38,14 @@ function installPwaRecovery({ scope, build, storageKey, startupWaitMs }) {
       return false;
     }
   };
-  const inspect = async () => {
-    if (!navigator.serviceWorker.controller || reloading) return;
+  const readBuild = async (deployed = false) => {
     // Infraestrutura de boot: não depende de Http.ts, Vue, IndexedDB ou chunks.
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), 5000);
     try {
-      const response = await fetch(new URL("app-build.json", base), {
+      const url = new URL("app-build.json", base);
+      if (deployed) url.searchParams.set("network", "1");
+      const response = await fetch(url, {
         cache: "no-store",
         signal: abort.signal,
       });
@@ -56,24 +60,78 @@ function installPwaRecovery({ scope, build, storageKey, startupWaitMs }) {
       ) {
         throw new Error("Identidade do código inválida");
       }
-      if (!mounted && active.id !== build && remember(active.id)) {
-        reloading = true;
-        settle(true);
-        location.reload();
-      }
+      return active.id;
     } finally {
       clearTimeout(timer);
     }
+  };
+  const inspect = async () => {
+    if (
+      !navigator.serviceWorker.controller ||
+      reloading ||
+      navigator.serviceWorker.controller.state === "activating"
+    )
+      return;
+    const active = await readBuild();
+    if (!mounted && active !== build && remember(active)) {
+      reloading = true;
+      settle(true);
+      location.reload();
+    }
+  };
+  const watchRegistration = (value) => {
+    if (observed.has(value)) return;
+    observed.add(value);
+    const observe = () => {
+      const worker = value.installing || value.waiting;
+      if (!worker || observed.has(worker)) return;
+      observed.add(worker);
+      const changed = () => {
+        if (!mounted && worker.state === "installed" && value.waiting === worker)
+          worker.postMessage({ type: "SKIP_WAITING" });
+        if (worker.state === "activated") activated();
+      };
+      worker.addEventListener("statechange", changed);
+      stopWorkers.push(() => worker.removeEventListener("statechange", changed));
+      changed();
+    };
+    value.addEventListener("updatefound", observe);
+    stopWorkers.push(() => value.removeEventListener("updatefound", observe));
+    observe();
   };
   const check = () => {
     if (checking) return checking;
     checking = (async () => {
       let timer;
       try {
-        registration = await Promise.race([
-          navigator.serviceWorker.register(new URL("sw.js", base), {
+        try {
+          await inspect();
+        } catch (error) {
+          record("active_build", error);
+        }
+        if (reloading) return;
+        let deployed = null;
+        try {
+          deployed = await readBuild(true);
+        } catch (error) {
+          record("deployed_build", error);
+        }
+        const resolveRegistration = async () => {
+          if (!deployed && navigator.serviceWorker.getRegistration) {
+            const existing = await navigator.serviceWorker.getRegistration(base.pathname);
+            if (existing) return existing;
+          }
+          const workerUrl = new URL("sw.js", base);
+          workerUrl.searchParams.set("build", deployed || build);
+          return navigator.serviceWorker.register(workerUrl, {
             scope: base.pathname,
             updateViaCache: "none",
+          });
+        };
+        registration = await Promise.race([
+          resolveRegistration().then((value) => {
+            if (!mounted) watchRegistration(value);
+            return value;
           }),
           new Promise((_, reject) => {
             timer = setTimeout(
@@ -149,6 +207,18 @@ function installPwaRecovery({ scope, build, storageKey, startupWaitMs }) {
     void check();
   };
   const activated = () => {
+    stopActivation();
+    const worker = navigator.serviceWorker.controller;
+    // clients.claim() pode emitir controllerchange antes do fim de activate.
+    // Nesse instante uma leitura ainda pode ser atendida pelo cache anterior.
+    if (worker?.state === "activating") {
+      const changed = () => {
+        if (worker.state !== "activating") activated();
+      };
+      worker.addEventListener("statechange", changed);
+      stopActivation = () => worker.removeEventListener("statechange", changed);
+      return;
+    }
     void inspect().catch((error) => record("active_build", error));
   };
   navigator.serviceWorker.addEventListener("controllerchange", activated);
@@ -167,6 +237,8 @@ function installPwaRecovery({ scope, build, storageKey, startupWaitMs }) {
       clearTimeout(startupTimer);
       clearTimeout(failureTimer);
       clearInterval(retryTimer);
+      stopActivation();
+      stopWorkers.forEach((stop) => stop());
       banner?.remove();
       navigator.serviceWorker.removeEventListener("controllerchange", activated);
       win.removeEventListener("online", foreground);
@@ -192,6 +264,7 @@ function installPwaRecovery({ scope, build, storageKey, startupWaitMs }) {
       return [...previous, ...events.splice(0)];
     },
   };
+  if (navigator.serviceWorker.controller?.state === "activating") activated();
   void check();
 }
 

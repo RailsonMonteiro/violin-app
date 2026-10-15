@@ -23,19 +23,24 @@ for (const mobile of [false, true]) {
     let current = A;
     const server = createServer((request, response) => {
       response.setHeader("Cache-Control", "no-store");
-      if (request.url === "/sw.js") {
+      const url = new URL(request.url, "http://localhost");
+      if (url.pathname === "/sw.js") {
+        // A CDN conserva a URL antiga; uma URL da publicação nova recebe o SW novo.
+        const requested = url.searchParams.get("build");
+        const workerBuild = [A, B, C].includes(requested) ? requested : A;
         response.setHeader("Content-Type", "application/javascript");
-        response.end(`const cache = 'code-' + ${JSON.stringify(current)};
+        response.end(`const cache = 'code-' + ${JSON.stringify(workerBuild)};
           self.addEventListener('install', event => event.waitUntil((async () => {
             const c = await caches.open(cache); await c.addAll(['/', '/app-build.json']); await self.skipWaiting();
           })()));
           self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
           self.addEventListener('message', event => { if (event.data?.type === 'SKIP_WAITING') self.skipWaiting(); });
           self.addEventListener('fetch', event => {
-            if (event.request.mode === 'navigate' || new URL(event.request.url).pathname === '/app-build.json')
+            const url = new URL(event.request.url);
+            if (event.request.mode === 'navigate' || (url.pathname === '/app-build.json' && !url.searchParams.has('network')))
               event.respondWith(caches.open(cache).then(c => c.match(event.request.mode === 'navigate' ? '/' : '/app-build.json')));
           });`);
-      } else if (request.url === "/app-build.json") {
+      } else if (url.pathname === "/app-build.json") {
         response.setHeader("Content-Type", "application/json");
         response.end(JSON.stringify({ version: 1, id: current }));
       } else {
@@ -50,7 +55,7 @@ for (const mobile of [false, true]) {
       serviceWorkers: "allow",
     });
     try {
-      const page = await context.newPage();
+      let page = await context.newPage();
       const violations = [];
       page.on("console", (message) => {
         if (message.text().includes("Content Security Policy")) violations.push(message.text());
@@ -79,6 +84,7 @@ for (const mobile of [false, true]) {
           };
         });
       });
+      await page.evaluate(() => window.__ljPwaRecovery.ready);
       current = B;
       await page.evaluate(() => window.dispatchEvent(new Event("online")));
       await page.waitForFunction(
@@ -112,7 +118,14 @@ for (const mobile of [false, true]) {
       expect(await inspect()).toEqual(saved);
       await context.setOffline(false);
       current = C;
-      await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update());
+      await page.evaluate(
+        (build) =>
+          navigator.serviceWorker.register(`/sw.js?build=${build}`, {
+            scope: "/",
+            updateViaCache: "none",
+          }),
+        C
+      );
       await page.waitForFunction(
         async (build) => (await (await fetch("/app-build.json")).json()).id === build,
         C
@@ -120,7 +133,11 @@ for (const mobile of [false, true]) {
       expect(await page.evaluate(() => document.body.dataset.build)).toBe(B);
       // A resposta do cache pode chegar enquanto activate ainda aguarda clients.claim().
       await page.waitForFunction(() => navigator.serviceWorker.controller?.state === "activated");
-      await page.reload();
+      // Próxima abertura real, preservando o perfil e seus dados.
+      const address = page.url();
+      await page.close();
+      page = await context.newPage();
+      await page.goto(address);
       await page.waitForFunction(
         (build) => document.body.dataset.build === build && document.body.dataset.mounted === "yes",
         C
