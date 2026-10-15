@@ -183,6 +183,46 @@ describe("POST /api/song-slides e /api/bible — roles music/bible", () => {
     expect(res.code).not.toBe(403);
   });
 
+  it("liturgy sem a role leva 403", async () => {
+    const res = response();
+    await handlers.get.get("/api/liturgy")({ query: {}, headers: {}, ...SEM }, res);
+
+    expect(res.code).toBe(403);
+  });
+
+  it("liturgy-execute sem a role leva 403", async () => {
+    const res = response();
+    await handlers.post.get("/api/liturgy-execute")(
+      { body: { id: "x", day: 0 }, headers: {}, ...SEM },
+      res
+    );
+
+    expect(res.code).toBe(403);
+  });
+
+  it("chat/history sem a role leva 403", async () => {
+    const res = response();
+    await handlers.get.get("/api/chat/history")({ query: {}, headers: {}, ...SEM }, res);
+
+    expect(res.code).toBe(403);
+  });
+
+  it("announcements sem a role leva 403", async () => {
+    const resGet = response();
+    await handlers.get.get("/api/announcements")(
+      { query: { action: "list" }, headers: {}, ...SEM },
+      resGet
+    );
+    const resPost = response();
+    await handlers.post.get("/api/announcements")(
+      { body: { action: "next" }, headers: {}, ...SEM },
+      resPost
+    );
+
+    expect(resGet.code).toBe(403);
+    expect(resPost.code).toBe(403);
+  });
+
   it("open-song sem a role music leva 403", async () => {
     const res = response();
     await handlers.post.get("/api/open-song")({ body: { id: 10 }, headers: {}, ...SEM }, res);

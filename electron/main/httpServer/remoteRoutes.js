@@ -472,6 +472,12 @@ function register(app, ctx) {
   // Body: { id: string, tag?: string }
   // ---------------------------------------------------------------
   app.post("/api/liturgy-execute", (req, res) => {
+    // Executar item projeta música/bíblia/mídia no desktop pelo renderer — a
+    // rota é da liturgia, então a role que manda é `liturgy`.
+    if (!hasDevicePermission(req, "liturgy")) {
+      console.log("[httpServer] liturgy-execute → 403 (device sem a permission liturgy)");
+      return res.status(403).json({ error: "Device sem permissão de liturgia" });
+    }
     const mainWindow = getValidMainWindow();
     if (!mainWindow) {
       return res.status(503).json({ error: "Janela principal não disponível" });
@@ -779,6 +785,11 @@ function register(app, ctx) {
   // Mesmo guard de path traversal do protocolo louvorja://files (resolveWrite).
   // ---------------------------------------------------------------
   app.get("/api/music-library/image", async (req, res) => {
+    // Capa é parte da navegação de músicas: mesma role do `/api/music-library`.
+    if (!hasDevicePermission(req, "music")) {
+      console.log("[httpServer] music-library/image → 403 (device sem a permission music)");
+      return res.status(403).json({ error: "Device sem permissão de música" });
+    }
     const raw = typeof req.query.path === "string" ? req.query.path : "";
     if (!raw) {
       return res.status(400).json({ error: "path é obrigatório" });
@@ -1214,7 +1225,11 @@ function register(app, ctx) {
   // desktop), da mais antiga para a mais recente. O app usa isso para
   // preencher lacunas após reconectar.
   // ---------------------------------------------------------------
-  app.get("/api/chat/history", (_req, res) => {
+  app.get("/api/chat/history", (req, res) => {
+    if (!hasDevicePermission(req, "chat")) {
+      console.log("[httpServer] chat/history → 403 (device sem a permission chat)");
+      return res.status(403).json({ error: "Device sem permissão de chat" });
+    }
     const limit = devices.getChatHistoryLimit();
     let messages = [];
     try {
@@ -1236,6 +1251,10 @@ function register(app, ctx) {
   // /api/liturgy — itens da liturgia do dia (GET)
   // ---------------------------------------------------------------
   app.get("/api/liturgy", (req, res) => {
+    if (!hasDevicePermission(req, "liturgy")) {
+      console.log("[httpServer] liturgy → 403 (device sem a permission liturgy)");
+      return res.status(403).json({ error: "Device sem permissão de liturgia" });
+    }
     const userData = typeof getUserData === "function" ? getUserData() : {};
     const day = req.query.day != null ? parseInt(req.query.day, 10) : new Date().getDay();
 

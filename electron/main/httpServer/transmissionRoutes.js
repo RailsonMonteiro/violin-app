@@ -467,6 +467,11 @@ function register(app, ctx) {
   // POST action=project|next|prev|stop — controle de anúncios
   // ---------------------------------------------------------------
   app.get("/api/announcements", async (req, res) => {
+    // Anúncios têm role própria (`announce`) — a rota de listagem manda nela.
+    if (!hasDevicePermission(req, "announce")) {
+      console.log("[httpServer] announcements → 403 (device sem a permission announce)");
+      return res.status(403).json({ error: "Device sem permissão de anúncios" });
+    }
     const mainWindow = getValidMainWindow();
     const action = req.query.action || "list";
 
@@ -500,6 +505,10 @@ function register(app, ctx) {
 
 
   app.post("/api/announcements", (req, res) => {
+    if (!hasDevicePermission(req, "announce")) {
+      console.log("[httpServer] announcements → 403 no comando (device sem a permission)");
+      return res.status(403).json({ error: "Device sem permissão de anúncios" });
+    }
     const mainWindow = getValidMainWindow();
     if (!mainWindow) {
       return res.status(503).json({ error: "Janela principal não disponível" });

@@ -16,30 +16,30 @@
  */
 export type DevicePermission =
   | "root"
-  | "music"
-  | "bible"
-  | "liturgy"
   | "announce"
-  | "chat"
-  | "online_videos"
   | "background_sound"
-  | "volume"
+  | "bible"
+  | "chat"
+  | "keyboard"
+  | "liturgy"
   | "media_library"
-  | "keyboard";
+  | "music"
+  | "online_videos"
+  | "volume";
 
 /** Lista completa de permissões disponíveis. */
 export const DEVICE_PERMISSIONS: DevicePermission[] = [
   "root",
-  "music",
-  "bible",
-  "liturgy",
   "announce",
-  "chat",
-  "online_videos",
   "background_sound",
-  "volume",
-  "media_library",
+  "bible",
+  "chat",
   "keyboard",
+  "liturgy",
+  "media_library",
+  "music",
+  "online_videos",
+  "volume",
 ];
 
 /** Mapa permissão → chave de tradução (para UI). */
