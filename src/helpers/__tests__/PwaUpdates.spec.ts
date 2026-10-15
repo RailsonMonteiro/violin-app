@@ -204,6 +204,31 @@ describe("PwaUpdates", () => {
     expect(h.latest().status).toBe("current");
   });
 
+  it("não informa código atual quando a identidade falha e recupera na próxima tentativa", async () => {
+    const h = boot();
+    await h.tick();
+    h.readActiveBuildId.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await h.instance.check();
+    expect(h.latest()).toMatchObject({ status: "error", ready: false });
+    h.readActiveBuildId.mockResolvedValueOnce(null);
+    await h.instance.check();
+    expect(h.latest().status).toBe("error");
+    await h.instance.check();
+    expect(h.latest().status).toBe("current");
+  });
+
+  it("não informa código atual se a instalação já retornou redundante", async () => {
+    const h = boot();
+    await h.tick();
+    const worker = new Worker();
+    worker.state = "redundant";
+    h.reg.update.mockImplementationOnce(async () => {
+      h.reg.installing = worker;
+    });
+    await h.instance.check();
+    expect(h.latest()).toMatchObject({ status: "error", ready: false });
+  });
+
   it("save pendurado retorna erro e mantém a atualização sem recarregar", async () => {
     const h = boot({ active: "B" });
     await h.tick();

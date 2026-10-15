@@ -748,6 +748,14 @@ describe("Telemetry", () => {
       );
 
       expect(posthog.captureException).not.toHaveBeenCalled();
+      expect(posthog.capture).toHaveBeenCalledWith(
+        "local_storage_failed",
+        expect.objectContaining({
+          error_name: "UnknownError",
+          error_message: "Internal error committing transaction.",
+          local_environment_error: "storage_unavailable",
+        })
+      );
       expect(posthog.logger.warn).toHaveBeenCalledWith(
         "The requested file could not be read",
         expect.objectContaining({ local_environment_error: "file_unreadable", source: "vue" })
@@ -759,6 +767,22 @@ describe("Telemetry", () => {
 
       Telemetry.captureException(new Error("erro de verdade"));
       expect(posthog.captureException).toHaveBeenCalledOnce();
+    });
+
+    it("conserva nome e mensagem de erro serializado em vez de enviar object Object", async () => {
+      const Telemetry = await loadTelemetry();
+      await Telemetry.init();
+      Telemetry.captureException(
+        { name: "InvalidStateError", message: "Database connection is closing" },
+        { source: "database" }
+      );
+      expect(posthog.captureException).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "InvalidStateError",
+          message: "Database connection is closing",
+        }),
+        expect.objectContaining({ source: "database" })
+      );
     });
 
     it("só a janela principal leva o link do replay nos erros", async () => {

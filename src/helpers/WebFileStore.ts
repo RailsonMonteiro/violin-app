@@ -15,6 +15,12 @@ import { createAdaptiveConcurrency } from "@root/electron/main/download/adaptive
 import { API_URL, API_URL_FILES, LEGACY_MEDIA_PREFIXES, MEDIA_URL } from "@/config/Api";
 import { fetchWithTimeout, NET_TIMEOUT } from "@/helpers/Http";
 import { currentUrlOfLegacyMedia, resolveMediaReference } from "@/helpers/MediaUrl";
+import {
+  failureDetails,
+  reportReliabilityEvent,
+  reportReliabilityFailure,
+} from "@/helpers/ReliabilityDiagnostics";
+import { KEYS_LS } from "@/constants/LocalStorageKeys";
 
 export const AUDIO_CACHE = "louvorja-audio";
 export const IMAGE_CACHE = "louvorja-images";
@@ -84,14 +90,25 @@ function urlFor(remote: string): string | null {
 function cacheUrlsFor(remote: string): string[] {
   const ref = resolveMediaReference(remote);
   if (!ref) return [];
-  const roots = [MEDIA_URL, API_URL_FILES, ...LEGACY_MEDIA_PREFIXES].filter(Boolean).map((root) => root.replace(/\/+$/, ""));
-  const known = !/^https?:\/\//i.test(remote) || roots.some((root) => ref.url.startsWith(`${root}/`));
+  const roots = [MEDIA_URL, API_URL_FILES, ...LEGACY_MEDIA_PREFIXES]
+    .filter(Boolean)
+    .map((root) => root.replace(/\/+$/, ""));
+  const known =
+    !/^https?:\/\//i.test(remote) || roots.some((root) => ref.url.startsWith(`${root}/`));
   if (!known) return [ref.url];
   const query = new URL(ref.url).search;
-  return [...new Set([ref.url, ...roots.map((root) => new URL(`${root}${ref.relativePath}${query}`).href)])];
+  return [
+    ...new Set([
+      ref.url,
+      ...roots.map((root) => new URL(`${root}${ref.relativePath}${query}`).href),
+    ]),
+  ];
 }
 
-async function cachedResponse(remote: string, store: Record<string, Cache>): Promise<Response | undefined> {
+async function cachedResponse(
+  remote: string,
+  store: Record<string, Cache>
+): Promise<Response | undefined> {
   for (const url of cacheUrlsFor(remote)) {
     const response = await store[cacheNameFor(url)].match(url, { ignoreVary: true });
     if (response) return response;
@@ -151,6 +168,18 @@ const onQueueCancelled = emitter<Record<string, never>>();
 
 let controller: AbortController | null = null;
 
+class WebDownloadFailure extends Error {
+  constructor(
+    error: unknown,
+    readonly stage: "download" | "persist",
+    readonly status?: number
+  ) {
+    const details = failureDetails(error);
+    super(details.error_message, { cause: error });
+    this.name = details.error_name;
+  }
+}
+
 async function downloadOne(
   remote: string,
   url: string,
@@ -159,6 +188,8 @@ async function downloadOne(
 ): Promise<number> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
+    let stage: "download" | "persist" = "download";
+    let status: number | undefined;
     try {
       const response = await fetchWithTimeout(url, {
         timeout: NET_TIMEOUT.MEDIA,
@@ -170,13 +201,16 @@ async function downloadOne(
         cache: "no-store",
       });
       // Só 200 inteiro: um 206 gravado como arquivo completo tocaria cortado.
+      status = response.status;
       if (response.status !== 200) throw new Error(`HTTP ${response.status}`);
       const bytes = Number(response.headers.get("content-length")) || 0;
+      stage = "persist";
       await store[cacheNameFor(url)].put(url, response);
       return bytes;
     } catch (e) {
-      lastError = e;
+      lastError = new WebDownloadFailure(e, stage, status);
       if (signal.aborted) throw e;
+      if (failureDetails(e).reason === "storage_full") break;
     }
   }
   throw lastError instanceof Error ? lastError : new Error(`Falha ao baixar ${remote}`);
@@ -186,6 +220,7 @@ type QueueItem = { remote: string; url: string; netFailures: number };
 
 /** Falha de transporte (rede caiu, página suspensa), não resposta ruim do servidor. */
 function isNetworkFailure(e: unknown): boolean {
+  if (e instanceof WebDownloadFailure) return e.stage === "download" && isNetworkFailure(e.cause);
   return e instanceof TypeError || (e instanceof DOMException && e.name === "TimeoutError");
 }
 
@@ -225,6 +260,8 @@ async function runQueue(
   let pauses = 0;
   let paused: Promise<void> | null = null;
   let gaveUp = false;
+  let stoppedReason = "Sem conexão";
+  const failures = new Set<string>();
   const { start, max } = webConcurrencyBounds();
   const adaptive = createAdaptiveConcurrency({ min: 2, start, max, ramp: "geometric" });
   let peakLimit = adaptive.limit();
@@ -288,6 +325,20 @@ async function runQueue(
           if (++consecutiveNetwork >= PAUSE_AFTER_NETWORK_FAILURES) pauseForNetwork();
         } else {
           console.warn("[WebFileStore] falhou:", item.remote, e);
+          const details = failureDetails(e);
+          if (!failures.has(details.reason) && failures.size < 5) {
+            failures.add(details.reason);
+            reportReliabilityFailure("web_download_file_failed", e, {
+              stage: e instanceof WebDownloadFailure ? e.stage : "download",
+              http_status: e instanceof WebDownloadFailure ? e.status : undefined,
+              media_kind: cacheNameFor(item.url) === AUDIO_CACHE ? "audio" : "image",
+              media_host: new URL(item.url).host,
+            });
+          }
+          if (details.reason === "storage_full") {
+            gaveUp = true;
+            stoppedReason = details.error_message;
+          }
           fail(item, (e as Error).message);
         }
       } finally {
@@ -300,7 +351,32 @@ async function runQueue(
     onQueueCancelled.emit({});
     return;
   }
-  for (const item of [...retry, ...unstarted]) fail(item, "Sem conexão");
+  for (const item of [...retry, ...unstarted]) fail(item, stoppedReason);
+  // Confere as chaves efetivamente gravadas antes de declarar a fila concluída.
+  try {
+    const currentStore = await openCaches();
+    const keys = new Set(
+      (await Promise.all(Object.values(currentStore).map((cache) => cache.keys())))
+        .flat()
+        .map((request) => request.url)
+    );
+    const missing = pending.filter(
+      (item) => !cacheUrlsFor(item.url).some((url) => keys.has(url))
+    ).length;
+    reportReliabilityEvent("web_download_storage_verified", {
+      requested: pending.length,
+      missing,
+      downloaded,
+      failed,
+    });
+    if (missing > failed) {
+      failed = missing;
+      downloaded = pending.length - missing;
+    }
+  } catch (error) {
+    reportReliabilityFailure("web_download_verify_failed", error, { stage: "verify" });
+  }
+  void auditWebStorage("download_finished");
   void import("@/helpers/Telemetry")
     .then(({ default: Telemetry }) => {
       Telemetry.track("web_download_queue_finished", {
@@ -411,8 +487,11 @@ export const webDownload = {
 export async function requestPersistence(): Promise<boolean> {
   try {
     if (!navigator.storage?.persist) return false;
-    return (await navigator.storage.persisted?.()) || (await navigator.storage.persist());
-  } catch {
+    const granted = (await navigator.storage.persisted?.()) || (await navigator.storage.persist());
+    reportReliabilityEvent("web_storage_persistence", { granted });
+    return granted;
+  } catch (error) {
+    reportReliabilityFailure("web_storage_persistence_failed", error, { stage: "persist_request" });
     return false;
   }
 }
@@ -430,6 +509,41 @@ export async function webStorageUsage(): Promise<WebStorageUsage> {
   const estimate = (await navigator.storage?.estimate?.().catch(() => null)) ?? {};
   const persisted = (await navigator.storage?.persisted?.().catch(() => false)) ?? false;
   return { usage: estimate.usage ?? 0, quota: estimate.quota ?? 0, persisted };
+}
+
+/** Só contagens, sem URLs ou conteúdo. Uma queda não prova a causa da remoção. */
+export async function auditWebStorage(
+  source: "boot" | "download_finished" | "user_remove" | "user_clear"
+): Promise<void> {
+  try {
+    const store = await openCaches();
+    const [audio, images, usage] = await Promise.all([
+      store[AUDIO_CACHE].keys(),
+      store[IMAGE_CACHE].keys(),
+      webStorageUsage(),
+    ]);
+    const current = { audio_count: audio.length, image_count: images.length };
+    let previous: { audio_count?: unknown; image_count?: unknown } | null = null;
+    try {
+      previous = JSON.parse(localStorage.getItem(KEYS_LS.WEB_STORAGE_AUDIT) || "null");
+      localStorage.setItem(KEYS_LS.WEB_STORAGE_AUDIT, JSON.stringify(current));
+    } catch {
+      /* Sem marcador, informa somente o estado atual. */
+    }
+    const decreased =
+      typeof previous?.audio_count === "number" &&
+      typeof previous?.image_count === "number" &&
+      (current.audio_count < previous.audio_count || current.image_count < previous.image_count);
+    reportReliabilityEvent("web_storage_checked", {
+      source,
+      ...current,
+      ...usage,
+      decreased,
+      intentional: source === "user_remove" || source === "user_clear",
+    });
+  } catch (error) {
+    reportReliabilityFailure("web_storage_check_failed", error, { stage: source });
+  }
 }
 
 export const webStorage = {
@@ -459,17 +573,20 @@ export const webStorage = {
       await Promise.all(
         remotes.slice(i, i + STORAGE_BATCH).map(async (remote) => {
           const url = urlFor(remote);
-          if (url) for (const candidate of cacheUrlsFor(url)) {
-            await store[cacheNameFor(candidate)].delete(candidate, { ignoreVary: true });
-          }
+          if (url)
+            for (const candidate of cacheUrlsFor(url)) {
+              await store[cacheNameFor(candidate)].delete(candidate, { ignoreVary: true });
+            }
         })
       );
     }
+    void auditWebStorage("user_remove");
   },
 
   /** Apaga todo o áudio e as imagens baixados; o catálogo (IndexedDB) fica. */
   async clearFiles(): Promise<void> {
     await Promise.all([AUDIO_CACHE, IMAGE_CACHE].map((name) => caches.delete(name)));
+    void auditWebStorage("user_clear");
   },
 
   async sizeOfPaths(remotes: string[]): Promise<{ bytes: number; count: number }> {

@@ -32,6 +32,7 @@ import { setNetworkTimingReporter } from "@/helpers/Http";
 import { setDatabaseTimingReporter } from "@/helpers/Database";
 import { KEYS } from "@/constants/UserDataKeys";
 import { classifyLocalEnvironmentError } from "@/helpers/LocalEnvironmentErrors";
+import { failureDetails } from "@/helpers/ReliabilityDiagnostics";
 import packageJson from "@root/package.json";
 
 const KEY = import.meta.env.VITE_POSTHOG_KEY ?? "";
@@ -400,6 +401,10 @@ function captureResultDetails(result: CaptureResult | undefined): Record<string,
 function baseContext(): Record<string, unknown> {
   return {
     app_version: _appVersion,
+    app_build:
+      typeof document !== "undefined"
+        ? document.querySelector<HTMLMetaElement>('meta[name="louvorja-build"]')?.content
+        : undefined,
     app_version_source: _appVersionSource,
     sdk_version: _sdkVersion,
     ...runtimeContext(),
@@ -625,14 +630,9 @@ async function importPostHogWithTransportDiagnostics(): Promise<typeof import("p
  * processo principal.
  */
 function safeError(error: unknown): Error {
-  let message = "Erro não identificado";
-  try {
-    message = error instanceof Error ? error.message : String(error);
-  } catch {
-    message = "Erro não serializável";
-  }
-
-  const safe = new Error(sanitizeString(message));
+  const details = failureDetails(error);
+  const safe = new Error(sanitizeString(details.error_message));
+  safe.name = sanitizeString(details.error_name);
   if (error instanceof Error) {
     safe.name = sanitizeString(error.name || "Error");
     if (error.stack) safe.stack = sanitizeString(error.stack);
@@ -676,6 +676,11 @@ export function captureException(error: unknown, properties: Record<string, unkn
   const sanitized = safeError(error);
   const localKind = classifyLocalEnvironmentError(error);
   if (localKind) {
+    track("local_storage_failed", {
+      ...properties,
+      ...failureDetails(error),
+      local_environment_error: localKind,
+    });
     log("warn", sanitized.message, {
       ...serializableProperties(properties),
       error_name: sanitized.name,
@@ -1802,7 +1807,15 @@ async function _init(): Promise<void> {
         if (isBenignException(capture.properties)) return null;
         const localKind = localEnvironmentKindOf(capture.properties);
         if (localKind) {
-          const first = (capture.properties?.$exception_list as { type?: string; value?: string }[])[0];
+          const first = (
+            capture.properties?.$exception_list as { type?: string; value?: string }[]
+          )[0];
+          track("local_storage_failed", {
+            source: "sdk.autocapture",
+            error_name: first?.type,
+            error_message: first?.value,
+            local_environment_error: localKind,
+          });
           log("warn", String(first?.value ?? "Falha do ambiente local"), {
             source: "sdk.autocapture",
             error_name: first?.type,
@@ -1897,6 +1910,9 @@ async function _init(): Promise<void> {
   }
 
   const pendingEvents = _pendingEvents.splice(0);
+  for (const diagnostic of window.__ljPwaRecovery?.drainDiagnostics() ?? []) {
+    track("pwa_boot_recovered", diagnostic);
+  }
   for (const pending of pendingEvents) posthog.capture(pending.event, pending.properties);
   if (pendingEvents.length > 0) {
     diagnostic("debug", "eventos pendentes enviados após init", { count: pendingEvents.length });

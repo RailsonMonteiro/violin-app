@@ -1,5 +1,6 @@
 /** @category helper-puro — Ciclo de atualização da PWA, sem Pinia ou APIs Vue. */
 import { fetchWithTimeout, NET_TIMEOUT } from "@/helpers/Http";
+import { reportReliabilityEvent, reportReliabilityFailure } from "@/helpers/ReliabilityDiagnostics";
 export const PWA_UPDATE_INTERVAL_MS = 15 * 60 * 1000;
 const UPDATE_TIMEOUT_MS = 30_000;
 
@@ -40,7 +41,9 @@ export function createPwaUpdateController(options: UpdateOptions) {
   const { serviceWorker, window: window_, document: document_, online, onState } = options;
   let state: PwaUpdateState = { status: "idle", ready: false, lastCheckedAt: null };
   let registration: ServiceWorkerRegistration | null = null;
-  let observedController = options.initialController ?? serviceWorker.controller;
+  let observedController =
+    options.initialController === undefined ? serviceWorker.controller : options.initialController;
+  let activeBuildId: string | null = null;
   let checking: Promise<void> | null = null;
   let applying: Promise<boolean> | null = null;
   let disposed = false;
@@ -48,19 +51,37 @@ export function createPwaUpdateController(options: UpdateOptions) {
   const cleanups: Array<() => void> = [];
 
   const publish = (patch: Partial<PwaUpdateState>) => {
+    if (disposed) return;
+    const previous = state.status;
     state = { ...state, ...patch };
+    if (previous !== state.status)
+      reportReliabilityEvent("pwa_update_state", {
+        status: state.status,
+        ready: state.ready,
+        loaded_build: options.loadedBuildId ?? null,
+        active_build: activeBuildId,
+      });
     if (!disposed) onState({ ...state });
   };
   const ready = () => publish({ ready: true, status: applying ? "applying" : "ready" });
   // Leitura passa pelo precache do controlador ativo. Assim um documento A
   // detecta SW B mesmo se a ativação ocorreu antes de carregar este módulo.
   const inspectBuild = async () => {
-    if (!options.loadedBuildId || !options.readActiveBuildId) return;
+    if (!serviceWorker.controller || !options.loadedBuildId || !options.readActiveBuildId)
+      return true;
     try {
       const activeId = await bounded(options.readActiveBuildId());
-      if (activeId && activeId !== options.loadedBuildId && !disposed) ready();
-    } catch {
-      // A verificação nativa do SW continua válida sem esse arquivo auxiliar.
+      if (!activeId) throw new Error("Não foi possível identificar o código ativo");
+      activeBuildId = activeId;
+      if (activeId !== options.loadedBuildId && !disposed) ready();
+      return true;
+    } catch (error) {
+      reportReliabilityFailure("pwa_update_failed", error, {
+        stage: "read_build",
+        loaded_build: options.loadedBuildId,
+      });
+      if (!state.ready) publish({ status: online() ? "error" : "offline" });
+      return false;
     }
   };
   const listen = (target: EventTarget, event: string, handler: () => void) => {
@@ -87,9 +108,17 @@ export function createPwaUpdateController(options: UpdateOptions) {
         if (registration?.waiting === worker && observedController) ready();
         else if (!state.ready) publish({ status: "checking" });
       } else if (worker.state === "activated") {
-        void inspectBuild();
-        if (!state.ready) publish({ status: "current" });
-      } else if (worker.state === "redundant" && !state.ready) publish({ status: "error" });
+        void inspectBuild().then((verified) => {
+          if (verified && !state.ready) publish({ status: "current" });
+        });
+      } else if (worker.state === "redundant" && !state.ready) {
+        reportReliabilityFailure(
+          "pwa_update_failed",
+          new Error("A instalação do novo código não foi concluída"),
+          { stage: "install_worker" }
+        );
+        publish({ status: "error" });
+      }
     };
     listen(worker, "statechange", changed);
     changed();
@@ -114,14 +143,12 @@ export function createPwaUpdateController(options: UpdateOptions) {
         updateViaCache: "none",
       })
     )
-      .then((value) => {
+      .then(async (value) => {
         registration = value;
         if (disposed) return value;
         listen(value, "updatefound", () => observeWorker(value.installing));
         observeWorker(value.installing);
         if (value.waiting && serviceWorker.controller) ready();
-        else if (!value.installing && !state.ready)
-          publish({ status: online() ? "current" : "offline" });
         if (
           serviceWorker.controller &&
           observedController &&
@@ -129,10 +156,13 @@ export function createPwaUpdateController(options: UpdateOptions) {
         )
           ready();
         observedController = serviceWorker.controller;
-        void inspectBuild();
+        const verified = await inspectBuild();
+        if (verified && !value.installing && !state.ready)
+          publish({ status: online() ? "current" : "offline" });
         return value;
       })
-      .catch(() => {
+      .catch((error) => {
+        reportReliabilityFailure("pwa_update_failed", error, { stage: "register" });
         publish({ status: online() ? "error" : "offline" });
         return null;
       });
@@ -154,11 +184,41 @@ export function createPwaUpdateController(options: UpdateOptions) {
       if (!state.ready) publish({ status: "checking" });
       try {
         await bounded(value.update());
-        await inspectBuild();
+        const installing = value.installing;
+        if (
+          installing &&
+          installing.state !== "installed" &&
+          installing.state !== "activated" &&
+          installing.state !== "redundant"
+        ) {
+          let stop = () => {};
+          try {
+            await bounded(
+              new Promise<void>((resolve) => {
+                const changed = () => {
+                  if (
+                    ["activated", "redundant"].includes(installing.state) ||
+                    (installing.state === "installed" && value.waiting === installing)
+                  )
+                    resolve();
+                };
+                installing.addEventListener("statechange", changed);
+                stop = () => installing.removeEventListener("statechange", changed);
+                changed();
+              })
+            );
+          } finally {
+            stop();
+          }
+        }
+        if (installing?.state === "redundant")
+          throw new Error("Instalação da atualização interrompida");
+        const verified = await inspectBuild();
         if (value.waiting && serviceWorker.controller) ready();
-        else if (!value.installing && !state.ready) publish({ status: "current" });
+        else if (verified && !value.installing && !state.ready) publish({ status: "current" });
         publish({ lastCheckedAt: Date.now() });
-      } catch {
+      } catch (error) {
+        reportReliabilityFailure("pwa_update_failed", error, { stage: "check" });
         if (!state.ready) publish({ status: "error" });
       }
     })().finally(() => {
@@ -185,9 +245,14 @@ export function createPwaUpdateController(options: UpdateOptions) {
           );
         }
         if (!canReload() || disposed) return false;
-        options.reload(); // único reload: ação explícita desta janela
+        options.reload(); // A janela já verificou atividade e persistiu as alterações.
         return true;
-      } catch {
+      } catch (error) {
+        reportReliabilityFailure("pwa_update_failed", error, {
+          stage: "apply",
+          loaded_build: options.loadedBuildId,
+          active_build: activeBuildId,
+        });
         publish({ status: "error" });
         return false;
       } finally {
@@ -228,8 +293,8 @@ let snapshot: PwaUpdateState = { status: "idle", ready: false, lastCheckedAt: nu
 const subscribers = new Set<(_state: PwaUpdateState) => void>();
 let controller: ReturnType<typeof createPwaUpdateController> | null = null;
 
-export function startPwaUpdates(initialController?: ServiceWorker | null): void {
-  if (controller) return;
+export function startPwaUpdates(initialController?: ServiceWorker | null) {
+  if (controller) return controller;
   if (!navigator.serviceWorker) {
     snapshot = { ...snapshot, status: "unsupported" };
     subscribers.forEach((subscriber) => subscriber(snapshot));
@@ -271,6 +336,7 @@ export function startPwaUpdates(initialController?: ServiceWorker | null): void 
     },
     reload: () => window.location.reload(),
   });
+  return controller;
 }
 
 export function subscribePwaUpdates(subscriber: (_state: PwaUpdateState) => void): () => void {

@@ -80,6 +80,7 @@ async function start() {
   bootStage("dependencies_ready", { indexeddb_blocking: requiresIdbBeforeMount });
 
   app.mount("#app");
+  window.__ljPwaRecovery?.markMounted();
   bootStage("mounted");
 
   // Projeção e relógio existem para ficar no ar sem toque algum; no navegador a

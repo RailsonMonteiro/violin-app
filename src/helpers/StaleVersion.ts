@@ -9,6 +9,7 @@
 import Platform from "@/helpers/Platform";
 import $snackbar from "@/helpers/Snackbar";
 import { i18nAtual } from "@/i18n";
+import { checkPwaUpdate } from "@/helpers/PwaUpdates";
 
 export function isStaleChunkError(err: unknown): boolean {
   return /dynamically imported module|preload CSS|module script failed/i.test(String(err));
@@ -17,12 +18,13 @@ export function isStaleChunkError(err: unknown): boolean {
 /** A falha não comprova que existe uma versão nova ou que ela já foi guardada offline. */
 export function notifyStaleVersion(): void {
   if (Platform.isDesktop) return;
+  void checkPwaUpdate();
   $snackbar.show({
     text: i18nAtual()?.global.t("shell.stale_version") ?? "",
     color: "warning",
     timeout: 15000,
     key: "stale_version",
-    action: () => window.location.reload(),
+    action: () => window.dispatchEvent(new Event("lj:pwa-recover")),
   });
 }
 

@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as ReliabilityDiagnostics from "../ReliabilityDiagnostics";
 
 const fetchMock = vi.fn();
 
@@ -17,7 +18,7 @@ vi.mock("@/helpers/Http", () => ({
   fetchWithTimeout: (url: string, init: unknown) => fetchMock(url, init),
 }));
 
-vi.mock("@/helpers/Telemetry", () => ({ default: { track: vi.fn() } }));
+vi.mock("@/helpers/Telemetry", () => ({ default: { track: vi.fn(), captureException: vi.fn() } }));
 
 class FakeCache {
   items = new Map<string, Response>();
@@ -44,6 +45,7 @@ import {
   webDownload,
   webStorage,
   webStorageUsage,
+  type WebFileEntry,
 } from "../WebFileStore";
 
 const files = [
@@ -53,7 +55,7 @@ const files = [
 ];
 const url = (r: string) => `https://api.test/file${r}`;
 
-function run(list = files) {
+function run(list: WebFileEntry[] = files) {
   return new Promise<{ downloaded: number; failed: number }>((resolve) => {
     const off = webDownload.onQueueDone((r) => {
       off();
@@ -84,10 +86,7 @@ describe("migração das chaves antigas do /file", () => {
     const images = new FakeCache();
     stores.set(AUDIO_CACHE, audio);
     stores.set(IMAGE_CACHE, images);
-    audio.items.set(
-      "https://api.louvorja.workers.dev/file/musics/pt/A/x.opus",
-      new Response("a")
-    );
+    audio.items.set("https://api.louvorja.workers.dev/file/musics/pt/A/x.opus", new Response("a"));
     audio.items.set("https://files.louvorja.com.br/musics/pt/A/ja.opus", new Response("b"));
     images.items.set("https://api.louvorja.com.br/file/covers/1.jpg?v=2", new Response("c"));
 
@@ -99,9 +98,9 @@ describe("migração das chaves antigas do /file", () => {
       "https://files.louvorja.com.br/musics/pt/A/x.opus",
     ]);
     expect([...images.items.keys()]).toEqual(["https://files.louvorja.com.br/covers/1.jpg?v=2"]);
-    expect(await (await audio.match("https://files.louvorja.com.br/musics/pt/A/x.opus"))!.text()).toBe(
-      "a"
-    );
+    expect(
+      await (await audio.match("https://files.louvorja.com.br/musics/pt/A/x.opus"))!.text()
+    ).toBe("a");
   });
 
   it("não sobrescreve quem já existe na chave nova", async () => {
@@ -113,9 +112,9 @@ describe("migração das chaves antigas do /file", () => {
     await migrateLegacyMediaKeys();
 
     expect([...audio.items.keys()]).toEqual(["https://files.louvorja.com.br/musics/pt/A/x.opus"]);
-    expect(await (await audio.match("https://files.louvorja.com.br/musics/pt/A/x.opus"))!.text()).toBe(
-      "novo"
-    );
+    expect(
+      await (await audio.match("https://files.louvorja.com.br/musics/pt/A/x.opus"))!.text()
+    ).toBe("novo");
   });
 });
 
@@ -123,7 +122,7 @@ describe("WebFileStore", () => {
   it("reconhece após o download as URLs públicas do catálogo ao conferir pelos caminhos relativos", async () => {
     const remote = "/musics/pt/A/one.opus";
     const remoteUrl = `https://files.louvorja.com.br${remote}`;
-    expect(await run([{ remote, remoteUrl }] as typeof files)).toEqual({ downloaded: 1, failed: 0 });
+    expect(await run([{ remote, remoteUrl }])).toEqual({ downloaded: 1, failed: 0 });
     expect(await webStorage.checkLocal([remote])).toEqual({ [remote]: "own" });
     expect(await webStorage.sizeOfPaths([remote])).toEqual({ bytes: 11, count: 1 });
     expect(await webDownload.start([{ remote, remoteUrl }])).toEqual({ queued: 0 });
@@ -233,6 +232,45 @@ describe("WebFileStore", () => {
       return new Response("x", { status: 200 });
     });
     expect(await run([files[0]])).toEqual({ downloaded: 1, failed: 0 });
+  });
+
+  it("falta de espaço interrompe a fila, preserva os anteriores e registra a causa original", async () => {
+    const reportFailure = vi
+      .spyOn(ReliabilityDiagnostics, "reportReliabilityFailure")
+      .mockImplementation(() => {});
+    const audio = new FakeCache();
+    stores.set(AUDIO_CACHE, audio);
+    audio.items.set(url(files[0].remote), new Response("saved"));
+    vi.spyOn(audio, "put").mockRejectedValue(
+      new DOMException("Quota reached", "QuotaExceededError")
+    );
+    const many = Array.from({ length: 30 }, (_, i) => ({ remote: `/musics/pt/A/new-${i}.mp3` }));
+    expect(await run(many)).toEqual({ downloaded: 0, failed: 30 });
+    expect(fetchMock.mock.calls.length).toBeLessThan(30);
+    expect(await (await audio.match(url(files[0].remote)))!.text()).toBe("saved");
+    expect(reportFailure).toHaveBeenCalledWith(
+      "web_download_file_failed",
+      expect.objectContaining({ name: "QuotaExceededError", message: "Quota reached" }),
+      expect.objectContaining({
+        stage: "persist",
+      })
+    );
+    reportFailure.mockRestore();
+  });
+
+  it("não declara sucesso quando os arquivos desaparecem antes da conferência final", async () => {
+    const reportEvent = vi
+      .spyOn(ReliabilityDiagnostics, "reportReliabilityEvent")
+      .mockImplementation(() => {});
+    const audio = new FakeCache();
+    stores.set(AUDIO_CACHE, audio);
+    vi.spyOn(audio, "put").mockResolvedValue(undefined);
+    expect(await run([files[0]])).toEqual({ downloaded: 0, failed: 1 });
+    expect(reportEvent).toHaveBeenCalledWith(
+      "web_download_storage_verified",
+      expect.objectContaining({ requested: 1, missing: 1 })
+    );
+    reportEvent.mockRestore();
   });
 
   it("queda de rede pausa a fila e retoma sem contar falha quando a conexão volta", async () => {

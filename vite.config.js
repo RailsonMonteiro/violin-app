@@ -4,7 +4,8 @@ import { VitePWA } from "vite-plugin-pwa";
 import posthogRollupPlugin from "@posthog/rollup-plugin";
 import path from "path";
 import { createRequire } from "module";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
+import { KEYS_LS } from "./src/constants/LocalStorageKeys";
 import { normalizeAppVersion } from "./src/helpers/AppVersion.js";
 
 const require_ = createRequire(import.meta.url);
@@ -12,6 +13,7 @@ const { version: packageVersion } = require_("./package.json");
 const { version: posthogSdkPackageVersion } = require_("posthog-js/package.json");
 
 const { escapeRegex, dbCachePattern } = require_("./config/swDbRoute.cjs");
+const { installPwaRecovery } = require_("./config/pwaRecovery.cjs");
 
 // https://vitejs.dev/config/
 export default async ({ mode }) => {
@@ -43,6 +45,13 @@ export default async ({ mode }) => {
   // Detectar target: "desktop" (Electron) ou "web" (padrão PWA)
   const isDesktop = process.env.VITE_TARGET === "desktop";
   const webBuildId = isDesktop ? null : randomUUID();
+  const recoveryScript = `(${installPwaRecovery.toString()})(${JSON.stringify({
+    scope: process.env.VITE_BASE_URL || "/",
+    build: webBuildId,
+    storageKey: KEYS_LS.PWA_RECOVERY_STATE,
+    startupWaitMs: 2500,
+  })});`;
+  const recoveryHash = createHash("sha256").update(recoveryScript).digest("base64");
   const posthogApiKey = process.env.POSTHOG_API_KEY;
   const posthogProjectId = process.env.POSTHOG_PROJECT_ID;
 
@@ -60,7 +69,7 @@ export default async ({ mode }) => {
     return (
       `<meta http-equiv="Content-Security-Policy" content="` +
       `default-src 'self';` +
-      ` script-src 'self' blob: ${DOMAINS_CSP.SCRIPT} 'wasm-unsafe-eval';` +
+      ` script-src 'self' blob: ${DOMAINS_CSP.SCRIPT} 'wasm-unsafe-eval' 'sha256-${recoveryHash}';` +
       ` style-src 'self' 'unsafe-inline' ${DOMAINS_CSP.STYLE};` +
       ` font-src 'self' data: ${DOMAINS_CSP.FONT};` +
       ` img-src 'self' blob: data: ${cspApi} ${DOMAINS_CSP.IMG};` +
@@ -89,7 +98,7 @@ export default async ({ mode }) => {
             transformIndexHtml(html) {
               return html.replace(
                 "<!--CSP_PROD-->",
-                `${cspMeta}<meta name="louvorja-build" content="${webBuildId}">`
+                `${cspMeta}<meta name="louvorja-build" content="${webBuildId}"><script>${recoveryScript}</script>`
               );
             },
             generateBundle() {

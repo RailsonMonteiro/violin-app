@@ -29,6 +29,9 @@ export function usePwaUpdates() {
     pulse.value++;
   }, 1000);
   const hasWork = () =>
+    Boolean(
+      document.activeElement?.closest('input, textarea, [contenteditable="true"], [role="dialog"]')
+    ) ||
     hasOpenWebWindows() ||
     tasks.hasActiveTasks.value ||
     backgroundSound.isPlaying.value ||
@@ -42,17 +45,39 @@ export function usePwaUpdates() {
     unsubscribe();
     clearInterval(timer);
   });
+  const apply = () =>
+    applyPwaUpdate({
+      canReload: () => !hasWork(),
+      beforeReload: async () => {
+        await ScheduledStore.flush();
+        UserData.flushPendingWebSave();
+      },
+    });
+  const checkAndApply = async () => {
+    await checkPwaUpdate();
+    if (state.value.ready) await apply();
+  };
+  let wasHidden = document.visibilityState === "hidden";
+  const resumed = () => {
+    if (document.visibilityState === "hidden") wasHidden = true;
+    else if (wasHidden) {
+      wasHidden = false;
+      void checkAndApply();
+    }
+  };
+  const recover = () => {
+    void checkAndApply();
+  };
+  document.addEventListener("visibilitychange", resumed);
+  window.addEventListener("lj:pwa-recover", recover);
+  onScopeDispose(() => {
+    document.removeEventListener("visibilitychange", resumed);
+    window.removeEventListener("lj:pwa-recover", recover);
+  });
   return {
     state: readonly(state),
     blocked,
-    check: checkPwaUpdate,
-    apply: () =>
-      applyPwaUpdate({
-        canReload: () => !hasWork(),
-        beforeReload: async () => {
-          await ScheduledStore.flush();
-          UserData.flushPendingWebSave();
-        },
-      }),
+    check: checkAndApply,
+    apply,
   };
 }

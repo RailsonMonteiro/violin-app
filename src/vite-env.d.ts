@@ -508,6 +508,11 @@ declare global {
   }
 
   interface Window {
+    __ljPwaRecovery?: {
+      ready: Promise<boolean>;
+      markMounted: () => void;
+      drainDiagnostics: () => Array<Record<string, unknown>>;
+    };
     louvorjaApi?: LouvorjaApi;
     vlibras?: VLibrasWidget;
     VLibras?: {

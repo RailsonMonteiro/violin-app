@@ -1,6 +1,6 @@
 <template>
   <section
-    v-if="!Platform.isDesktop && state.ready"
+    v-if="!Platform.isDesktop && (state.ready || state.status === 'error')"
     class="pwa-update-notice"
     role="status"
     aria-live="polite"
@@ -8,17 +8,19 @@
   >
     <LjIcon :icon="ICONS.UI.CHECK_UPDATE" size="18" class="pwa-update-notice__icon" />
     <div class="pwa-update-notice__body">
-      <strong>{{ t("options.updates.pwa_ready") }}</strong>
+      <strong>
+        {{ t(state.ready ? "options.updates.pwa_ready" : "options.updates.pwa_error_title") }}
+      </strong>
       <span>{{ detail }}</span>
     </div>
     <LjButton
       variant="primary"
       :icon="ICONS.ACTIONS.RESTART"
-      :disabled="blocked"
+      :disabled="state.ready && blocked"
       :loading="state.status === 'applying'"
-      @click="apply"
+      @click="state.ready ? apply() : check()"
     >
-      {{ t("options.updates.pwa_apply") }}
+      {{ t(state.ready ? "options.updates.pwa_apply" : "options.updates.pwa_retry") }}
     </LjButton>
   </section>
 </template>
@@ -32,7 +34,7 @@ import Platform from "@/helpers/Platform";
 import { usePwaUpdates } from "@/composables/usePwaUpdates";
 
 const { t } = useI18n();
-const { state, apply, blocked } = usePwaUpdates();
+const { state, apply, check, blocked } = usePwaUpdates();
 const detail = computed(() =>
   t(
     state.value.status === "applying"
@@ -52,11 +54,11 @@ const detail = computed(() =>
   flex-shrink: 0;
   align-items: center;
   gap: var(--lj-space-4);
-  padding: var(--lj-space-3) var(--lj-space-5);
+  padding: var(--lj-space-5);
   background: var(--lj-active-bg);
-  border-bottom: 1px solid var(--lj-surface-border);
+  border-bottom: 3px solid var(--lj-info);
   color: var(--lj-text);
-  font-size: var(--lj-text-sm);
+  font-size: var(--lj-text-base);
 }
 
 .pwa-update-notice__icon {

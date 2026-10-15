@@ -22,7 +22,11 @@ import $alert from "@helpers/Alert";
 import Platform from "@/helpers/Platform";
 import WakeLock from "@/helpers/WakeLock";
 import { installFileDrop } from "@/helpers/FileDrop";
-import { migrateLegacyMediaKeys, requestPersistence } from "@/helpers/WebFileStore";
+import {
+  auditWebStorage,
+  migrateLegacyMediaKeys,
+  requestPersistence,
+} from "@/helpers/WebFileStore";
 import { initAppInstall } from "@/composables/useAppInstall";
 import {
   API_URL,
@@ -2374,6 +2378,7 @@ $storage.hydrate().then(async () => {
     watchStaleVersion();
 
     app.mount("#app");
+    window.__ljPwaRecovery?.markMounted();
     _bootStage("mounted");
 
     // Estado atual, não a ação de alternar: sem isto, saber "quantos usuários
@@ -2509,6 +2514,9 @@ $storage.hydrate().then(async () => {
       // abriria um aviso de permissão no meio do boot.
       if (window.matchMedia?.("(display-mode: standalone)").matches) void requestPersistence();
       initAppInstall();
+      setTimeout(() => {
+        void auditWebStorage("boot");
+      }, 10_000);
 
       // Mídia baixada com o endereço antigo da API passa para a chave nova, uma
       // vez, fora do caminho crítico do boot.
