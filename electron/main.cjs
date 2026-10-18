@@ -1050,6 +1050,15 @@ function createWindow() {
 // Permite autoplay de vídeos (YouTube embarcado) sem gesto do usuário
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 
+// No Windows o Chromium para de pintar a janela que julga coberta, e
+// `backgroundThrottling: false` não impede isso. Na telemetria de out/2026, 34
+// slides da projeção levaram ~1 s (985–1.015 ms) entre atualizar a tela e pintar,
+// todos em /projection no Windows e nenhum no macOS ou Linux. A projeção e a
+// captura do OBS precisam pintar mesmo com outra janela por cima.
+if (process.platform === "win32") {
+  app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
+}
+
 // Placa de vídeo dedicada no PC de mesa e integrada no notebook (gpuPreference.js).
 const gpuPreference = require("./main/gpuPreference.js");
 const _gpuChoice = gpuPreference.apply(app, paths.bootstrapDir());
