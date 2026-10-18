@@ -50,6 +50,9 @@ contextBridge.exposeInMainWorld("louvorjaApi", {
   /** Plataforma do sistema operacional: "win32" | "darwin" | "linux" */
   platform: process.platform,
 
+  /** Memória física em KB, lida na hora e sem IPC. `free` só é "disponível" no Windows; o macOS a deixa baixa de propósito. */
+  systemMemory: () => process.getSystemMemoryInfo(),
+
   /** true quando rodando em desenvolvimento (ELECTRON_DEV=1 ou executável não empacotado). */
   isDev: process.env.ELECTRON_DEV === "1" || process.defaultApp,
 

@@ -949,6 +949,8 @@ const RUNTIME_INCIDENT_KEYS = new Set([
   "renderer_overlapping_operations",
   "renderer_script_attribution_supported",
   "renderer_animation_frame",
+  "renderer_js_heap_mb",
+  "system_free_memory_mb",
   "main_synchronous_operations",
   "main_operation_coverage",
   "download_worker_id",
@@ -1012,6 +1014,29 @@ function safeStreamFailureDiagnostic(value: unknown): Record<string, string> | n
     safe[key] = entry;
   }
   return safe;
+}
+
+/**
+ * Memória no instante da travada. Quadros longos sem nenhum script vêm quase só de
+ * computadores com 4 GB; isto separa coleta de lixo do próprio app (heap grande) de
+ * sistema paginando (pouca memória livre).
+ */
+function memoryAtIncident(): { renderer_js_heap_mb?: number; system_free_memory_mb?: number } {
+  const out: { renderer_js_heap_mb?: number; system_free_memory_mb?: number } = {};
+  const heap = (performance as Performance & { memory?: { usedJSHeapSize?: number } }).memory
+    ?.usedJSHeapSize;
+  if (typeof heap === "number" && Number.isFinite(heap)) {
+    out.renderer_js_heap_mb = Math.round(heap / 1048576);
+  }
+  try {
+    const free = window.louvorjaApi?.systemMemory?.().free;
+    if (typeof free === "number" && Number.isFinite(free)) {
+      out.system_free_memory_mb = Math.round(free / 1024);
+    }
+  } catch {
+    /* web/PWA não tem a ponte do desktop */
+  }
+  return out;
 }
 
 export function reportRuntimeIncident(payload: unknown): void {
@@ -1176,6 +1201,7 @@ function startResponsivenessMonitor(): void {
             _pendingSpans.values()
           )
         : [],
+      ...memoryAtIncident(),
       ..._runtimeContext,
     });
   };
@@ -1219,6 +1245,7 @@ function startResponsivenessMonitor(): void {
                 entry.duration,
                 _pendingSpans.values()
               ),
+              ...memoryAtIncident(),
               ..._runtimeContext,
             });
           }

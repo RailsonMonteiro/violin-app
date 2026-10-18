@@ -80,6 +80,7 @@ declare global {
 
   interface LouvorjaApi {
     platform: string;
+    systemMemory?: () => { total: number; free: number };
     version: string;
     isDev: boolean;
     runtime?: {
