@@ -2045,6 +2045,54 @@ Quando ativado (via Transmissão → Dispositivos → checkbox), apenas devices
 cadastrados com permissões são aceitos. Token global legado é bloqueado.
 Persistido em `device_settings.json` via `devices.js`.
 
+### Pareamento de dispositivos
+
+O QR da tela **Transmissão → Dispositivos** carrega só o token que o desktop
+gerou, mais host e porta: `violin-remote://register?token=<uuid>&host=<host>&port=<porta>`.
+
+O app do celular então chama `POST /api/register-device` — rota pública, antes do
+auth — com:
+
+| Campo         | Obrigatório | O que é                                                       |
+| ------------- | ----------- | ------------------------------------------------------------- |
+| `token`       | sim         | O UUID do QR; vira a credencial HTTP do aparelho              |
+| `fingerprint` | **sim**     | Identidade do aparelho — **vira o `id` do registro**          |
+| `name`        | não         | Nome exibido na lista (`"Dispositivo"` quando ausente)        |
+| `model`       | não         | Modelo, só informativo                                        |
+| `platform`    | não         | `android`, `ios` ou `web` (qualquer outro valor cai em `web`) |
+
+**Contrato do `fingerprint`:** tem de ser um identificador **estável e único por
+aparelho** — um UUID gerado uma vez e persistido pelo próprio app, ou o
+equivalente da plataforma (`ANDROID_ID` no Android, `identifierForVendor` no
+iOS). Ele é duas coisas ao mesmo tempo:
+
+1. a **chave** do registro (a linha no IndexedDB e o device na lista em memória
+   do main são indexados por ele); e
+2. a chave de **reencontro** do pareamento — `addPending` (`devices.js`) procura
+   o fingerprint na lista e, achando, reusa a linha (mantendo as permissões e o
+   `status` já concedidos) em vez de criar outra.
+
+Depois de aprovado, o aparelho manda `X-Device-Id` + `X-Device-Token` em cada
+request, com o id sendo esse mesmo fingerprint.
+
+Dois erros já vistos na prática, e o que cada um custa:
+
+- **Identificador de build/ROM** (ex.: `Build.FINGERPRINT`, no formato
+  `Ulefone/Armor_8_Pro_8GB/Armor_8_Pro:11/RP1A.200720.011/1730442460:user/release-keys`):
+  **não é único por aparelho**. Dois aparelhos iguais com a mesma ROM mandam o
+  mesmo valor e o segundo registro reusa a linha do primeiro — herda as
+  permissões dele e o primeiro ainda perde o token. No modo restrito, isso é
+  autorização indevida.
+- **Valor que muda** (o próprio `Build.FINGERPRINT` muda a cada atualização de
+  SO): o aparelho parece novo a cada update, perde as permissões, volta para a
+  fila de aprovação e deixa a linha antiga órfã na lista.
+
+O desktop **não confere o formato** — exige apenas que `fingerprint` seja uma
+string não vazia (`httpServer/index.js`) —, então a qualidade desse valor é
+responsabilidade do cliente. Trocar o `fingerprint` depois de pareado é
+pareamento novo: a linha antiga precisa ser removida em Transmissão →
+Dispositivos.
+
 ### Organização dos arquivos do httpServer
 
 `electron/main/httpServer/` ficou em três arquivos (era um `routes.js` de
@@ -2104,7 +2152,7 @@ real e responde pela `RENDERER_RESPONSE_CHANNEL`.
 | GET             | `/api/user-data`                                          | `?path=...`                                                                                                                                                            | Lê valor do user_data                                                                    |
 | GET             | `/api/db/:path`                                           | —                                                                                                                                                                      | JSON do banco (cache local ou remoto)                                                    |
 | GET             | `/libras/:token`                                          | —                                                                                                                                                                      | Bundle de animação VLibras                                                               |
-| POST            | `/api/register-device`                                    | `{ token, name, model, platform }`                                                                                                                                     | Cadastro de device (antes do auth)                                                       |
+| POST            | `/api/register-device`                                    | `{ token, name, model, platform, fingerprint }`                                                                                                                        | Cadastro de device (antes do auth)                                                       |
 
 Todos os endpoints POST exigem `Content-Type: application/json`.
 

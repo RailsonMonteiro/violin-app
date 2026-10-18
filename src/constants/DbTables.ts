@@ -71,6 +71,7 @@ export const DB_TABLE = {
   LIBRAS_BIBLE: "libras.bible",
   LIBRAS_BUNDLES: "libras.bundles",
   // ─── Dispositivos autorizados ───
+  /** Um registro por dispositivo, com a chave sendo o `id` do aparelho. Só autorizado. */
   DEVICES: "devices",
   // ─── Chat ───
   CHAT_MESSAGES: "chat.messages",
