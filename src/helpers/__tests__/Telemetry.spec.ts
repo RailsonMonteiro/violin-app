@@ -337,6 +337,46 @@ describe("Telemetry", () => {
     Telemetry.setEnabled(false);
   });
 
+  it("não registra como travamento o quadro ocioso nem o computador dormindo", async () => {
+    const observers: Array<{ type: string; deliver: (_entries: PerformanceEntry[]) => void }> = [];
+    class Observer {
+      static supportedEntryTypes = ["longtask", "long-animation-frame"];
+      type = "";
+      disconnect = vi.fn();
+      constructor(private _callback: (_list: { getEntries: () => PerformanceEntry[] }) => void) {
+        observers.push(this);
+      }
+      observe(options: { type: string }) {
+        this.type = options.type;
+      }
+      deliver(entries: PerformanceEntry[]) {
+        this._callback({ getEntries: () => entries });
+      }
+    }
+    vi.stubGlobal("PerformanceObserver", Observer);
+    vi.stubEnv("MODE", "production");
+    vi.spyOn(performance, "now").mockImplementation(() => 100);
+    const Telemetry = await loadTelemetry();
+    await Telemetry.init();
+
+    const idleFrame = {
+      entryType: "long-animation-frame",
+      startTime: 200,
+      duration: 1016,
+      blockingDuration: 0,
+      scripts: [],
+    } as unknown as PerformanceEntry;
+    observers.find((observer) => observer.type === "long-animation-frame")?.deliver([idleFrame]);
+    const sleep = { entryType: "longtask", name: "self", startTime: 300, duration: 102_870_116 };
+    observers.find((observer) => observer.type === "longtask")?.deliver([sleep as PerformanceEntry]);
+
+    const incidents = posthog.logger.error.mock.calls.filter(([, attributes]) =>
+      /renderer_long_(task|animation_frame)/.test(String(attributes.incident_type))
+    );
+    expect(incidents).toHaveLength(0);
+    Telemetry.setEnabled(false);
+  });
+
   it("discards cancelled measurements without emitting success and preserves other pending measurements", async () => {
     const Telemetry = await loadTelemetry();
     await Telemetry.init();

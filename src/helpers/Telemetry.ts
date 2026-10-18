@@ -1133,7 +1133,10 @@ function startResponsivenessMonitor(): void {
     source: "renderer_long_task" | "renderer_timer_stall",
     entry?: PerformanceEntry
   ) => {
-    if (!Number.isFinite(durationMs) || durationMs < 100) return;
+    // Uma "tarefa" de horas é o computador dormindo com a janela aberta: a telemetria
+    // chegou a registrar 28 h. Nenhum travamento real passa de 2 minutos sem o processo
+    // ser dado como não responsivo.
+    if (!Number.isFinite(durationMs) || durationMs < 100 || durationMs > 120_000) return;
     addJank(heartbeatAggregate, durationMs);
     addJank(remoteAggregate, durationMs);
     const now = Date.now();
@@ -1186,6 +1189,11 @@ function startResponsivenessMonitor(): void {
             if (entry.startTime < monitoredFrom) continue;
             frames.noteFrame(entry);
             if (entry.duration < UI_JANK_BUDGET.critical) continue;
+            // Quadro longo sem bloqueio é a janela coberta ou em segundo plano esperando
+            // para desenhar (cerca de 1 s exato), não código travando: 191 dos 541
+            // incidentes de 14 dias eram isso.
+            if ((entry as PerformanceEntry & { blockingDuration?: number }).blockingDuration === 0)
+              continue;
             const now = Date.now();
             if (now - lastScriptIncidentAt < RUNTIME_CRITICAL_COOLDOWN_MS) continue;
             const frame = animationFrameDiagnostic(entry);
