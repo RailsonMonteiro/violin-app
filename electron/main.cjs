@@ -1050,6 +1050,10 @@ function createWindow() {
 // Permite autoplay de vídeos (YouTube embarcado) sem gesto do usuário
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 
+// Placa de vídeo dedicada no PC de mesa e integrada no notebook (gpuPreference.js).
+const gpuPreference = require("./main/gpuPreference.js");
+const _gpuChoice = gpuPreference.apply(app, paths.bootstrapDir());
+
 // ---------------------------------------------------------------------------
 // Linux — Forçar X11 e desabilitar sandbox
 // ---------------------------------------------------------------------------
@@ -1195,6 +1199,8 @@ async function _bootstrapMonitorConfig() {
 }
 
 app.whenReady().then(async () => {
+  // Vale a partir da próxima abertura; longe da abertura atual para não disputar CPU.
+  setTimeout(() => gpuPreference.detect(paths.bootstrapDir()), 60_000).unref?.();
   powerMonitor.on("resume", handleSystemResume);
   powerMonitor.on("unlock-screen", handleScreenUnlock);
   if (backgroundWindows && process.platform === "darwin") app.dock?.hide();
@@ -1543,7 +1549,10 @@ ipcMain.handle("telemetry:system-info", () => (systemInfoPromise ??= collectSyst
 // Qual placa o Chromium escolheu e a taxa de cada monitor: "aceleração ligada"
 // não distingue a placa dedicada da integrada num computador com as duas.
 ipcMain.handle("telemetry:graphics", async () => {
-  const info = { gpu_feature_status: {}, gpu_devices: [], displays: [], cpu_model: "", cpu_cores: 0, memory_gb: 0 };
+  const info = {
+    gpu_feature_status: {}, gpu_devices: [], displays: [], cpu_model: "", cpu_cores: 0, memory_gb: 0,
+    device_class: _gpuChoice.device_class, gpu_high_performance: _gpuChoice.high_performance,
+  };
   try {
     const cpus = require("node:os").cpus();
     info.cpu_model = String(cpus[0]?.model || "").trim().slice(0, 80);

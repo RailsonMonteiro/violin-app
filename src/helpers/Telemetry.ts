@@ -348,6 +348,8 @@ async function reportGraphics(posthog: PostHog): Promise<void> {
       gpu_active_vendor: active ? GPU_VENDORS[active.vendor_id] || String(active.vendor_id) : null,
       gpu_active_device_id: active?.device_id ?? null,
       gpu_vendors: info.gpu_devices.map((d) => GPU_VENDORS[d.vendor_id] || String(d.vendor_id)),
+      device_class: info.device_class ?? null,
+      gpu_high_performance: info.gpu_high_performance === true,
       cpu_model: info.cpu_model,
       cpu_cores: info.cpu_cores,
       memory_gb: info.memory_gb,
