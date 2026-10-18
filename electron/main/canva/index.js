@@ -20,6 +20,7 @@ const callbackServer = require("./callbackServer.js");
 const webSession = require("./webSession.js");
 const present = require("./present.js");
 const exporter = require("./export.js");
+const { migrarCaminhosCanva } = require("./migration.js");
 
 /*
  * Caminhos no `user_data` — espelho de `KEYS.OPTIONS.INTEGRATIONS.CANVA.*` em
@@ -392,6 +393,20 @@ async function clearCachedPdfs() {
   }
 }
 
+/**
+ * Traz o cache de export do endereço antigo (`<dados>/canva`) para
+ * `files/canva`, onde ele passou a viver. Roda uma vez no boot.
+ *
+ * @returns {Promise<{ok: true, movidos: number, falhas: number} | {ok: false, code: string, message: string}>}
+ */
+async function migrateCache() {
+  try {
+    return { ok: true, ...(await exporter.migrarCacheAntigo()) };
+  } catch (err) {
+    return wrap(err);
+  }
+}
+
 module.exports = {
   PROFILE_PATH,
   WEB_SESSION_PATH,
@@ -410,5 +425,7 @@ module.exports = {
   cachedPdfs,
   clearCachedPdf,
   clearCachedPdfs,
+  migrateCache,
+  migrarCaminhosCanva,
   tentarApresentar,
 };

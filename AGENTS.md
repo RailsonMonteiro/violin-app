@@ -19,7 +19,7 @@ Em caso de conflito, siga esta ordem:
 - Dados remotos: use `src/helpers/Http.ts` e `src/helpers/Database.ts`; eles concentram timeout, cache e fallback. Não introduza `fetch` avulso para dados do produto. Vale para o renderer: no processo main não existe `Http.ts`, e lá o `fetch` do Node é aceito com timeout e validação de fronteira no próprio módulo (ex.: `electron/main/canva/`).
 - Estado e preferências: use `AppData`/`UserData` e as chaves de `src/constants/UserDataKeys.ts`; não crie chaves literais novas. Exceção: segredo de terceiro não entra no `user_data` (que é sincronizado entre janelas) — vai para um arquivo próprio do `userStore`, cifrado.
 - Janelas: envie eventos semânticos por `Broadcast`; não acople componentes a `BroadcastChannel` diretamente.
-- Armazenamento desktop: todos os dados usam `paths.dataDir()` (Documentos/LouvorJA Violin ou a pasta escolhida); vídeos em `Videos/`, perfil Electron em `.electron/`. O endereço do sistema guarda apenas a âncora e o lock. Mudança do perfil termina no próximo boot.
+- Armazenamento desktop: todos os dados usam `paths.dataDir()` (Documentos/LouvorJA Violin ou a pasta escolhida); mídia e exports do Canva em `files/` (o cache do Canva em `files/canva/`), vídeos em `Videos/`, perfil Electron em `.electron/`. O endereço do sistema guarda apenas a âncora e o lock. Mudança do perfil termina no próximo boot.
 
 ## Guardrails de alteração
 

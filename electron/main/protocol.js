@@ -203,6 +203,36 @@ function setAutoCacheEnabled(enabled) {
 }
 
 /**
+ * Endereço novo de um arquivo que ficou no cache ANTIGO do Canva.
+ *
+ * O cache de export mudou de `<dados>/canva` para `<dados>/files/canva`, e
+ * URLs guardadas antes disso continuam apontando para o endereço velho. A que
+ * dói é o `LJ_FILE_PROJECTION` do telão: reabrir a última projeção depois de
+ * atualizar cairia num arquivo inexistente e a tela ficaria vazia até o
+ * operador projetar de novo. Em vez disso, servimos do endereço novo.
+ *
+ * Só vale para um ARQUIVO dentro da pasta antiga: a pasta em si continuaria
+ * 404 (servir diretório viraria 500 no stream).
+ *
+ * TODO: remover junto com `main/canva/migration.js`, na versão seguinte —
+ * roteiro em `docs/canva-cache-migration-removal.md`.
+ *
+ * @param {string} absoluto
+ * @returns {string|null} null quando o caminho não é o cache antigo do Canva
+ */
+function _enderecoNovoDoCanva(absoluto) {
+  try {
+    const antigo = path.resolve(paths.dataDir(), "canva");
+    const alvo = path.resolve(absoluto);
+    if (!alvo.startsWith(`${antigo}${path.sep}`)) return null;
+    return path.join(paths.filesDir(), "canva", path.relative(antigo, alvo));
+  } catch (_) {
+    /* Sem pasta de dados resolvida não há cache antigo a procurar. */
+    return null;
+  }
+}
+
+/**
  * Grava um ReadableStream em um arquivo via .tmp + rename atômico.
  * Usado pelo auto-cache do host "files".
  */
@@ -507,6 +537,11 @@ function handle() {
         }
 
         if (!(await fs.pathExists(raw))) {
+          /* Cache do Canva no endereço antigo: serve do novo (ver o TODO acima). */
+          const migrado = _enderecoNovoDoCanva(raw);
+          if (migrado && (await fs.pathExists(migrado))) {
+            return await _responderArquivo(migrado, request);
+          }
           return new Response("Not found", { status: 404 });
         }
 

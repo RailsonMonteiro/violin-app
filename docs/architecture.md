@@ -92,13 +92,20 @@ SW — sem isso o próximo `get` regravava o JSON antigo. Nenhuma dessas ações
 
 No desktop, todos os dados persistentes ficam em uma raiz única, por padrão
 `Documentos/LouvorJA Violin`, ou na pasta definida em Armazenamento. `paths.dataDir()`
-resolve essa raiz: mídia em `files/`, vídeos baixados em `Videos/`, preferências em
-`storage/`, documentos em `library/`, cache do banco em `json_db/`, ferramentas em
-`bin/` e dados internos do Electron (IndexedDB, cookies, caches, logs) em `.electron/`.
+resolve essa raiz: mídia em `files/` (com os exports do Canva em `files/canva/`),
+vídeos baixados em `Videos/`, preferências em `storage/`, documentos em `library/`,
+cache do banco em `json_db/`, ferramentas em `bin/` e dados internos do Electron
+(IndexedDB, cookies, caches, logs) em `.electron/`.
 O endereço original de AppData/Application Support guarda a âncora `data-location.json`
 e o lock de instância única. Downloads e dados existentes são migrados sem sobrescrever
 destinos. Ao mover a raiz em Armazenamento, o perfil ainda aberto termina a migração no
 próximo boot; a tela indica que é preciso reiniciar.
+
+O cache de export do Canva (`files/canva/`) vive dentro do acervo, mas não é tratado como
+ele: tem contagem própria na tela de Armazenamento, sobrevive ao "Limpar mídia" e fica
+fora do limite de espaço e da remoção de arquivos não referenciados — apagá-lo por idade
+forçaria uma reexportação, que gasta a cota do Canva. Ele só sai pelos selos da aba Canva
+ou pelo botão "Limpar exportações do Canva".
 
 ## 🧠 Stack
 
@@ -2461,11 +2468,11 @@ web do Canva e sem janela nova.
 `electron/main/canva/export.js`:
 
 1. `GET /v1/designs/{id}` → `updated_at` (chave do cache);
-2. se `<dados>/canva/<id>.pdf` e o `<id>.json` ao lado batem → **cache, nenhum job**;
+2. se `<dados>/files/canva/<id>.<ext>` e o `<id>.<ext>.json` ao lado batem → **cache, nenhum job**;
 3. `POST /v1/exports {design_id, format:{type:"pdf", export_quality}}` → job;
 4. `GET /v1/exports/{jobId}` a cada 1 s, teto de 60 tentativas;
-5. baixa para `<dados>/canva/<id>.pdf` e grava o `.json` com `updated_at` e a
-   qualidade pedida.
+5. baixa para `<dados>/files/canva/<id>.<ext>` e grava o `.json` com `updated_at` e
+   a qualidade pedida.
 
 Dois guards de fronteira, porque errar aqui é um canvas em branco na frente da
 congregação:
@@ -2573,7 +2580,7 @@ zero só faz o pdf.js reclamar.
 
 #### Selo de cache na lista
 
-O PDF já fica guardado em `<dados>/canva/<designId>.pdf` + `.json` — o que
+O arquivo já fica guardado em `<dados>/files/canva/<designId>.<ext>` + `.json` — o que
 faltava era o operador VER isso e conseguir apagar.
 
 - **`canva:cachedPdfs`** devolve `designId → updated_at` de tudo que tem
@@ -2590,7 +2597,7 @@ faltava era o operador VER isso e conseguir apagar.
 - **Exclusão**: `canva:clearCachedPdf` → `yesno` → apaga `.pdf` + `.json`. O id
   é validado **na fronteira** (IPC) e **de novo** no `limparCachePdf`, porque
   ele vira caminho de arquivo; `nomeSeguro` neutraliza `..` e `/`, então o alvo
-  sempre cai em `<dados>/canva`.
+  sempre cai em `<dados>/files/canva`.
 
 ### Conteúdo e projeção (modo "site")
 

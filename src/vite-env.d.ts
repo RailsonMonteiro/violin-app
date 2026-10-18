@@ -208,6 +208,8 @@ declare global {
         restartRequired?: boolean;
         filesDir?: string;
         files?: { bytes: number; count: number };
+        /** Cache de export do Canva (`files/canva`), fora do acervo. */
+        canva?: { bytes: number; count: number };
         json?: { bytes: number; count: number };
         total?: { bytes: number };
       }>;

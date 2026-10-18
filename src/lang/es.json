@@ -691,6 +691,7 @@
         "import_move": "Mover"
       },
       "media_size": "Medios (audio, imágenes)",
+      "canva_size": "Exportaciones de Canva",
       "cache_size": "Caché del banco",
       "libras_size": "Accesibilidad (Libras)",
       "total": "Total",
@@ -702,9 +703,13 @@
       "clear_cache": "Limpiar caché del banco",
       "clear_cache_collections": "Limpiar caché de colecciones",
       "clear_files": "Limpiar medios (audio/imágenes)",
+      "clear_canva": "Limpiar exportaciones de Canva",
       "refresh": "Recargar",
       "clear_cache_confirm": "¿Limpiar todo el caché del banco? El programa descargará todo de nuevo al abrir.",
-      "clear_files_confirm": "¿Eliminar TODOS los archivos de medios descargados? Esta acción no se puede deshacer.",
+      "clear_files_confirm": "¿Eliminar TODOS los archivos de medios descargados? Esta acción no se puede deshacer. Las exportaciones de Canva se mantienen.",
+      "clear_canva_confirm": "¿Eliminar los archivos exportados de Canva? Son la caché que permite proyectar sin internet — en la próxima proyección cada diseño se exportará de nuevo, y eso gasta exportaciones de tu cuota de Canva.",
+      "clear_canva_done": "{n} archivo(s) de Canva eliminados de la caché.",
+      "clear_canva_failed": "No pude limpiar las exportaciones de Canva.",
       "restore_db": "Restaurar base de datos",
       "restore_db_confirm": "¿Restaurar la base de datos a los JSON originales del programa? Los datos descargados/actualizados por internet se perderán.",
       "restore_db_done": "Base de datos restaurada.",
@@ -844,7 +849,8 @@
       "with_image": "Tiene imagen",
       "controls": "Controles de Anuncios",
       "stop_projection": "Finalizar Proyección",
-      "projection_closed": "Proyección de anuncios finalizada"
+      "projection_closed": "Proyección de anuncios finalizada",
+      "executed": "{name} ejecutado"
     },
     "shortcuts": {
       "nav_group": "Navegación",

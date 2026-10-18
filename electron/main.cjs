@@ -1099,6 +1099,33 @@ function _walkGet(obj, path) {
 }
 
 /**
+ * Referências guardadas ao cache do Canva que ficaram no endereço antigo.
+ *
+ * A playlist da Biblioteca de Mídia (`modules.media_library.playlist`) guarda o
+ * caminho absoluto do arquivo: sem reescrever, o design que o operador pôs na
+ * lista antes da atualização deixaria de projetar — o arquivo mudou de lugar e
+ * a referência apontaria para o vazio. Roda ANTES da janela, então a primeira
+ * leitura do user_data já traz a lista corrigida; o que persistir depois grava
+ * a versão nova.
+ *
+ * @param {string} antigo
+ * @param {string} destino
+ */
+function _migrarReferenciasDoCanva(antigo, destino) {
+  try {
+    const lista = _userDataMain?.modules?.media_library?.playlist;
+    if (typeof antigo !== "string" || typeof destino !== "string") return;
+    const { lista: corrigida, trocados } = canva.migrarCaminhosCanva(lista, antigo, destino);
+    if (!trocados) return;
+    _userDataMain.modules.media_library.playlist = corrigida;
+    void _persistUserDataFromMain("modules.media_library.playlist");
+    console.log(`[canva] ${trocados} referência(s) da playlist atualizadas`);
+  } catch (e) {
+    console.warn("[main] Falha ao atualizar referências do Canva:", e?.message || e);
+  }
+}
+
+/**
  * Migra as preferências de monitor para o formato v2 e promove as pendências.
  *
  * Roda depois do `screen` estar disponível e ANTES de qualquer janela de
@@ -1285,6 +1312,24 @@ app.whenReady().then(async () => {
     // As janelas carregam por louvorja:// de qualquer forma; sem o servidor o
     // que se perde são as rotas que o OBS consome.
     console.warn("[main] HTTP server não disponível:", e.message);
+  }
+
+  /*
+   * O cache de export do Canva saiu de `<dados>/canva` para `files/canva`.
+   * ANTES da janela de propósito: mover arquivo enquanto o renderer pode pedir
+   * um export deixaria a troca competir com o download (um PDF recém-exportado
+   * poderia ser sobrescrito pelo antigo). São renomeações no mesmo volume —
+   * custo de milissegundos — e depois daqui a pasta só tem o endereço novo.
+   */
+  try {
+    const migracaoCanva = await canva.migrateCache();
+    /* Só reescreve as referências se a migração deu certo: com arquivo preso no
+       endereço antigo, apontar a playlist para o novo quebraria o item. */
+    if (migracaoCanva?.ok) {
+      _migrarReferenciasDoCanva(migracaoCanva.antigo, migracaoCanva.novo);
+    }
+  } catch (e) {
+    console.warn("[main] Falha ao migrar o cache do Canva:", e?.message || e);
   }
 
   createWindow();

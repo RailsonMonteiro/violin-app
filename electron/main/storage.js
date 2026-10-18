@@ -4,9 +4,9 @@
  * storage.js — Visibilidade e gerenciamento do armazenamento local.
  *
  * Replica o comportamento do Delphi (fmArquivosFalta + fmArquivosExcesso):
- * - stats(): tamanho ocupado por categoria (json, files, total).
+ * - stats(): tamanho ocupado por categoria (json, files, canva, total).
  * - clearJson(): limpa cache de JSON do banco.
- * - clearFiles(): limpa toda a pasta de mídia.
+ * - clearFiles(): limpa o acervo de mídia (o cache do Canva fica).
  * - clearUnused(remotePaths): remove arquivos locais que não estão na lista
  *   atual do servidor (equivalente a fmArquivosExcesso).
  * - verify(remoteFiles): compara lista do servidor com local — retorna
@@ -28,24 +28,27 @@ const { DATA_ENTRIES } = require("./dataMigration.js");
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function _dirSize(dir) {
-  if (!(await fs.pathExists(dir))) return { bytes: 0, files: 0 };
-  let total = 0;
-  let count = 0;
-  async function walk(p) {
-    const stat = await fs.stat(p);
-    if (stat.isDirectory()) {
-      const entries = await fs.readdir(p);
-      for (const e of entries) {
-        await walk(path.join(p, e));
-      }
-    } else {
-      total += stat.size;
-      count += 1;
-    }
-  }
-  await walk(dir);
-  return { bytes: total, files: count };
+/**
+ * Subpasta de `files/` com o cache de export do Canva (ver
+ * `main/canva/export.js`). Não é acervo do operador: tem contagem própria na
+ * tela de Armazenamento e não é candidato a limpeza automática.
+ */
+const CANVA_DIR = "canva";
+
+/** O caminho relativo (com `/`) pertence ao cache do Canva? */
+function _ehCacheCanva(relative) {
+  return relative === CANVA_DIR || relative.startsWith(`${CANVA_DIR}/`);
+}
+
+/**
+ * Arquivos de `files/` que são ACERVO — o cache do Canva fica de fora.
+ *
+ * É o que alimenta `extra` (e portanto remoção) em `verify`: arquivo do Canva
+ * não é mídia que o operador possa ter perdido, e não pode virar candidato a
+ * apagar por não estar na lista do servidor.
+ */
+async function _arquivosDeAcervo(filesDir) {
+  return (await _listAllFiles(filesDir)).filter((f) => !_ehCacheCanva(f.relative));
 }
 
 async function _listAllFiles(dir) {
@@ -73,13 +76,37 @@ async function _listAllFiles(dir) {
 /**
  * Retorna estatísticas de uso do armazenamento.
  * Classifica arquivos JSON do cache em: bible (bible_*), music (album_*, music_*),
- * e json (demais). Media files (mp3/imagens) ficam em files.
- * @returns {Promise<{filesDir: string, jsonDir: string, files: {bytes, count}, json: {bytes, count}, music: {bytes, count}, bible: {bytes, count}, total: {bytes, count}}>}
+ * e json (demais). Media files (mp3/imagens) ficam em files; o cache de export do
+ * Canva (files/canva) sai do acervo e vira categoria própria.
+ * @returns {Promise<{filesDir: string, jsonDir: string, files: {bytes, count}, canva: {bytes, count}, json: {bytes, count}, music: {bytes, count}, bible: {bytes, count}, total: {bytes, count}}>}
  */
 async function stats() {
   const filesDir = paths.filesDir();
   const jsonDir = paths.jsonCacheDir();
-  const filesStat = await _dirSize(filesDir);
+
+  /*
+   * Um walk só para as duas categorias de `files/`. Acervo e cache do Canva
+   * são coisas diferentes para quem opera — um é o acervo dele, o outro é o
+   * que o app baixou para projetar sem internet — e têm botões de limpar
+   * diferentes também.
+   */
+  let mediaBytes = 0;
+  let mediaCount = 0;
+  let canvaBytes = 0;
+  let canvaCount = 0;
+  for (const arquivo of await _listAllFiles(filesDir)) {
+    if (_ehCacheCanva(arquivo.relative)) {
+      canvaBytes += arquivo.size;
+      /*
+       * Conta a mídia, não o meta: `<id>.pdf.json` é metade de um cache só, e
+       * contar os dois diria "3 arquivos" para 2 apresentações.
+       */
+      if (!arquivo.relative.endsWith(".json")) canvaCount += 1;
+    } else {
+      mediaBytes += arquivo.size;
+      mediaCount += 1;
+    }
+  }
 
   let bibleBytes = 0;
   let bibleCount = 0;
@@ -113,13 +140,14 @@ async function stats() {
     restartRequired: paths.profileRestartRequired(),
     filesDir,
     jsonDir,
-    files: { bytes: filesStat.bytes, count: filesStat.files },
+    files: { bytes: mediaBytes, count: mediaCount },
+    canva: { bytes: canvaBytes, count: canvaCount },
     json: { bytes: jsonBytes, count: jsonCount },
     music: { bytes: musicBytes, count: musicCount },
     bible: { bytes: bibleBytes, count: bibleCount },
     total: {
-      bytes: filesStat.bytes + jsonBytes + musicBytes + bibleBytes,
-      count: filesStat.files + jsonCount + musicCount + bibleCount,
+      bytes: mediaBytes + canvaBytes + jsonBytes + musicBytes + bibleBytes,
+      count: mediaCount + canvaCount + jsonCount + musicCount + bibleCount,
     },
   };
 }
@@ -132,10 +160,31 @@ async function clearJson() {
   return { ok: true };
 }
 
-/** Remove toda a mídia local (mp3, imagens, etc.). */
+/**
+ * Remove o acervo local (mp3, imagens, etc.).
+ *
+ * O cache de export do Canva (files/canva) fica: não é acervo do operador, tem
+ * contagem e botão próprios na tela de Armazenamento, e apagá-lo por uma ação
+ * que promete outra coisa faria o próximo clique reexportar gastando cota.
+ */
 async function clearFiles() {
   const dir = paths.filesDir();
-  await fs.remove(dir);
+  let entradas = [];
+  try {
+    entradas = await fs.readdir(dir);
+  } catch (_) {
+    /* Pasta que não existe é acervo vazio. */
+    entradas = [];
+  }
+  for (const nome of entradas) {
+    if (nome === CANVA_DIR) continue;
+    try {
+      await fs.remove(path.join(dir, nome));
+    } catch (_) {
+      /* Ignora arquivo travado: o resto do acervo ainda sai. */
+    }
+  }
+  /* A pasta continua existindo depois de limpar, como antes. */
   await fs.ensureDir(dir);
   return { ok: true };
 }
@@ -147,10 +196,12 @@ async function clearFiles() {
  * - extra: presentes na nossa pasta e ausentes da lista do servidor
  *
  * `extra` é a única saída que alimenta remoção (`clearUnused`), e por isso é
- * derivada exclusivamente de `_listAllFiles(filesDir)` — nunca do resolvedor.
- * Um arquivo encontrado no acervo da versão clássica pode deixar de ser
- * `missing`, mas jamais pode virar candidato a apagar: a pasta é de outro
- * programa, que muita gente ainda usa em paralelo.
+ * derivada exclusivamente do acervo real em `files/` — nem do resolvedor, nem
+ * do cache de export do Canva. Um arquivo encontrado no acervo da versão
+ * clássica pode deixar de ser `missing`, mas jamais pode virar candidato a
+ * apagar: a pasta é de outro programa, que muita gente ainda usa em paralelo.
+ * O mesmo vale para o Canva: PDF exportado não está na lista do servidor e,
+ * sem a exclusão, todo o cache seria removido como "sobra".
  *
  * @param {Array<{remote: string, expectedSize?: number}>} remoteFiles
  * @returns {Promise<{missing, damaged, extra}>}
@@ -162,7 +213,7 @@ async function verify(remoteFiles = []) {
     if (r && r.remote) remoteMap.set(r.remote.replace(/^\/+/, ""), r);
   }
 
-  const local = await _listAllFiles(filesDir);
+  const local = await _arquivosDeAcervo(filesDir);
   const localSet = new Set(local.map((f) => f.relative));
 
   const missing = [];
@@ -419,7 +470,13 @@ async function removeJsonByPrefix(prefix = "") {
 async function enforceQuota(maxBytes) {
   if (!maxBytes || maxBytes <= 0) return { removed: 0 };
   const filesDir = paths.filesDir();
-  const list = await _listAllFiles(filesDir);
+  /*
+   * Só o acervo entra na conta e na fila de remoção: o cache de export do
+   * Canva descartado por idade forçaria uma reexportação (gasta cota do Canva)
+   * sem o operador ter pedido nada. Ele sai pelos selos da aba Canva ou pelo
+   * botão próprio em Armazenamento.
+   */
+  const list = await _arquivosDeAcervo(filesDir);
   let total = list.reduce((s, f) => s + f.size, 0);
   if (total <= maxBytes) return { removed: 0, total };
 
