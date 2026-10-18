@@ -133,7 +133,7 @@
 
 <script setup lang="ts">
 import { useLiturgyI18n } from "../i18n";
-import { setScrollPosition, getScrollPosition } from "@/helpers/ScrollMemory";
+import { setScrollPosition, restoreScrollPosition } from "@/helpers/ScrollMemory";
 import { LjButton, LjEmpty, LjIcon } from "@/components/ui";
 import { ICONS } from "@/config/Icons";
 import { nextTick, onActivated, onMounted, ref } from "vue";
@@ -186,7 +186,7 @@ function restoreScroll() {
   void nextTick(() => {
     // Na reativação o `mounted` roda com a subárvore ainda destacada; o
     // `onActivated` dispara depois da reinserção e é o que faz grudar.
-    if (scroller.value) scroller.value.scrollTop = getScrollPosition("liturgy:timeline");
+    restoreScrollPosition(scroller.value, "liturgy:timeline");
   });
 }
 
