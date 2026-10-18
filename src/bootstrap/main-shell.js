@@ -1546,7 +1546,12 @@ $storage.hydrate().then(async () => {
                 UserData.get(KEYS.MODULES.LITURGY.MARK_ON_ACCESS, false) === true &&
                 !Liturgy.isCheckedToday(litItem)
               ) {
-                Liturgy.toggleChecked(litItem.id);
+                // Grava no dia RESOLVIDO pelo `data.day` do pedido remoto. Antes
+                // ia sem dia e caía em `getActiveDay()`, que só é sincronizado
+                // para "hoje" quando o módulo da Liturgia é aberto no desktop; se
+                // o módulo não tivesse sido aberto a gravação ia parar no dia da
+                // última sessão (ou virar no-op).
+                Liturgy.toggleChecked(litItem.id, data.day);
               }
 
               /** Resolve um path de arquivo para URL reproduzível. */
@@ -2128,7 +2133,7 @@ $storage.hydrate().then(async () => {
             UserData.get(KEYS.MODULES.LITURGY.MARK_ON_ACCESS, false) === true &&
             !Liturgy.isCheckedToday(litItem)
           ) {
-            Liturgy.toggleChecked(litItem.id);
+            Liturgy.toggleChecked(litItem.id, data.day);
           }
           break;
         }
