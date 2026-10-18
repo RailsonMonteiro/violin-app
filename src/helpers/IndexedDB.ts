@@ -91,6 +91,17 @@ export default {
     return db.getAll(table, range);
   },
 
+  /**
+   * Só as chaves que começam com `prefix`. Ler os registros para descobrir quais
+   * existem desserializa todo o conteúdo na thread da tela: com as versões da
+   * Bíblia baixadas são milhares de capítulos de texto e segundos de travamento.
+   */
+  async getAllKeysByPrefix(table: string, prefix: string): Promise<string[]> {
+    const db = await getDb();
+    const range = prefix ? IDBKeyRange.bound(prefix, `${prefix}￿`) : undefined;
+    return (await db.getAllKeys(table, range)).map(String);
+  },
+
   /** Salva (insere ou atualiza) um registro. O objeto precisa ter um campo `id`. */
   async put<T extends { id: string }>(table: string, value: T): Promise<void> {
     await (await getDb()).put(table, value);
