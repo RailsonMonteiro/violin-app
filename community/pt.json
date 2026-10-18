@@ -1,5 +1,6 @@
 {
   "name": "LouvorJA Violin",
+  "version": "v2.0",
   "subtitle": "O CULTO INTEIRO EM SINTONIA",
   "short_desc": "Letra sincronizada com a música, Bíblia, liturgia e Libras no telão, com retorno para quem canta e controle pelo celular.",
   "overview_desc": "O LouvorJA Violin é a edição da comunidade para Windows, macOS e Linux, que também roda direto no navegador. Reúne o acervo do LouvorJA, a Bíblia e a liturgia em um só programa e leva cada coisa para a tela certa: a letra no telão, a frase atual e a próxima no retorno, a tradução em Libras na projeção e o controle no celular. Também traz relógio, cronômetro e sorteios, e o que você baixa continua funcionando sem internet.",
@@ -26,5 +27,10 @@
   "req_disk_min": "2 GB livres (as músicas tocam pela internet)",
   "req_disk_rec": "15 GB livres em SSD, para baixar todo o acervo e usar sem internet",
   "req_screens_min": "1 tela de 1366 × 768",
-  "req_screens_rec": "2 telas em modo estendido (monitor + projetor ou TV), 1920 × 1080"
+  "req_screens_rec": "2 telas em modo estendido (monitor + projetor ou TV), 1920 × 1080",
+  "v1_title": "LouvorJA Violin 2.0 (pré-visualização)",
+  "v1_date": "Desde setembro de 2026",
+  "v1_item1": "As notas de cada versão e os instaladores ficam em github.com/louvorja/violin-app/releases.",
+  "v1_item2": "O próprio programa avisa quando sai uma versão nova.",
+  "v1_item3": "Se a lista de versões e os downloads não aparecerem aqui, recarregue a página em alguns minutos."
 }
