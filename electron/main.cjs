@@ -1453,11 +1453,10 @@ app.on("before-quit", (event) => {
       console.log("[before-quit] user_data sincronizado com sucesso");
     }
 
-    // Um yt-dlp em andamento seguiria baixando (e segurando o vídeo) depois do app fechar.
-    onlineVideo.shutdown();
-    // O acervo usa um processo utilitário separado. Cancela e espera no máximo
-    // dois segundos para limpar temporários; nunca prende o encerramento.
-    await downloader.shutdown();
+    // Um yt-dlp em andamento seguiria baixando (e segurando o vídeo) depois do app
+    // fechar. Vídeos e acervo usam processos utilitários separados: os dois cancelam
+    // e esperam no máximo dois segundos; nunca prendem o encerramento.
+    await Promise.all([onlineVideo.shutdown(), downloader.shutdown()]);
 
     try {
       await httpServer.stop();
