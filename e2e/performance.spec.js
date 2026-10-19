@@ -37,6 +37,14 @@ async function installSlowRenderer(context, page) {
   await cdp.send("Emulation.setCPUThrottlingRate", { rate: CPU_SLOWDOWN });
 }
 
+/** O que o operador vê: a primeira linha pintada. As outras chegam em levas, uma por quadro. */
+async function waitForFirstMusicRow(page) {
+  await page.locator('[data-testid^="music-row-"]').first().waitFor({
+    state: "visible",
+    timeout: 45_000,
+  });
+}
+
 async function waitForMusicRows(page, expectedRows = 1) {
   await page.locator('[data-testid^="music-row-"]').first().waitFor({
     state: "visible",
@@ -74,7 +82,8 @@ test("navegação permanece utilizável com renderer desacelerado", async ({ bro
   });
 
   const musicButton = page.locator('[data-testid="ribbon-btn-musics"]');
-  const firstOpenMs = await clickAndMeasure(page, musicButton, () => waitForMusicRows(page, 60));
+  const firstOpenMs = await clickAndMeasure(page, musicButton, () => waitForFirstMusicRow(page));
+  await waitForMusicRows(page, 60);
   const renderedRows = await page.locator('[data-testid^="music-row-"]').count();
   const rowButtons = await page
     .locator('[data-testid^="music-row-"]')
@@ -96,7 +105,8 @@ test("navegação permanece utilizável com renderer desacelerado", async ({ bro
   await closeButton.click();
   await expect(closeButton).toHaveCount(0, { timeout: 15_000 });
 
-  const secondOpenMs = await clickAndMeasure(page, musicButton, () => waitForMusicRows(page, 60));
+  const secondOpenMs = await clickAndMeasure(page, musicButton, () => waitForFirstMusicRow(page));
+  await waitForMusicRows(page, 60);
   const secondRenderedRows = await page.locator('[data-testid^="music-row-"]').count();
 
   console.log(
