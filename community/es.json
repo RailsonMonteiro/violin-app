@@ -32,5 +32,6 @@
   "v1_date": "Desde septiembre de 2026",
   "v1_item1": "Las notas de cada versión y los instaladores están en github.com/louvorja/violin-app/releases.",
   "v1_item2": "El propio programa avisa cuando sale una versión nueva.",
-  "v1_item3": "Si la lista de versiones y las descargas no aparecen aquí, recarga la página en unos minutos."
+  "v1_item3": "Si la lista de versiones y las descargas no aparecen aquí, recarga la página en unos minutos.",
+  "dl_mac_desc": "Compatible con macOS 12 Monterey o superior, en un solo instalador para Mac con Intel o Apple Silicon."
 }

@@ -170,8 +170,7 @@ mac:
     - target: zip
       arch:
         - universal
-  # O .dmg não precisa de marca — só existe em macOS, a extensão já entrega
-  # isso. O .zip é genérico e, sem "-mac" no nome, ninguém que abra a lista de
+  # O .zip é genérico e, sem "-mac" no nome, ninguém que abra a lista de
   # assets da release adivinha que ele não é pra baixar: existe só porque o
   # Squirrel.Mac exige um .zip (não o .dmg) para o auto-update.
   artifactName: "LouvorJA.Violin-${version}-mac.${ext}"
@@ -188,7 +187,10 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
 
 dmg:
-  artifactName: "LouvorJA.Violin-${version}.${ext}"
+  # "-universal" é o que o site da comunidade lê para anunciar Intel e Apple
+  # Silicon; sem a marca ele chamava o instalador de "Intel (x86_64)". O link
+  # direto da versão web acompanha (src/helpers/DesktopDownload.ts).
+  artifactName: "LouvorJA.Violin-${version}-universal.${ext}"
   # O ícone do volume DMG ainda precisa do formato estático .icns.
   icon: build/icon-mac.icns
 
