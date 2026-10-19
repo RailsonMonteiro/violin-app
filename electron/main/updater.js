@@ -349,6 +349,36 @@ async function checkGithubRelease() {
   };
 }
 
+/**
+ * Aponta o electron-updater para a release mais nova por semver, de qualquer canal.
+ *
+ * O GitHubProvider só reconhece "alpha" e "beta" como pré-versão: quem está numa
+ * beta nunca veria uma `-rc.N`, e quem está numa rc nunca veria a estável. A
+ * escolha fica com `checkGithubRelease` (sem rascunhos; pré-versões só com a
+ * opção ligada) e o electron-updater apenas lê o `latest*.yml` e baixa da pasta
+ * daquela release. Se a API não responde, segue o GitHubProvider de antes.
+ *
+ * @returns {Promise<boolean>} false quando não há release elegível nenhuma
+ */
+async function _pointAtLatestRelease() {
+  let latest;
+  try {
+    latest = await checkGithubRelease();
+  } catch (e) {
+    console.warn("[updater] GitHub API indisponível; seguindo o GitHubProvider:", e?.message || e);
+    autoUpdater.setFeedURL({ provider: "github", owner: GITHUB_OWNER, repo: GITHUB_REPO });
+    return true;
+  }
+  if (!latest) return false;
+  autoUpdater.setFeedURL({
+    provider: "generic",
+    url: `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/download/${latest.tag}`,
+    // O armazenamento do GitHub não atende vários intervalos num pedido só.
+    useMultipleRangeRequest: false,
+  });
+  return true;
+}
+
 /** Faz o check via GitHub API e emite o estado correspondente. */
 async function checkGithubAndSetState() {
   _setState({ status: "checking", error: null, errorKind: null, errorDetail: null, newVersion: null });
@@ -734,11 +764,7 @@ function init({ channel = "latest", autoCheck = true, autoDownload = false, useB
 
     if (_autoCheck) {
       setTimeout(() => {
-        try {
-          autoUpdater.checkForUpdates();
-        } catch (e) {
-          _setErrorState(e);
-        }
+        void checkForUpdates();
       }, 5000);
     }
   }
@@ -788,6 +814,10 @@ async function checkForUpdates() {
   }
   try {
     _checkedViaGithub = false;
+    if (!(await _pointAtLatestRelease())) {
+      _setState({ status: "not-available" });
+      return { ok: true, state: { ..._state }, updateAvailable: false };
+    }
     autoUpdater.allowPrerelease = _useBeta;
     autoUpdater.autoDownload = false;
     await autoUpdater.checkForUpdates();
@@ -887,7 +917,9 @@ async function quitAndInstall() {
  * @returns {object}
  */
 function status() {
-  return { ..._state };
+  // A tela de opções lê daqui a escolha efetiva: o main resolve o padrão e a
+  // volta à estável (updateChannel.js), e ela não deve repetir essa regra.
+  return { ..._state, useBeta: _useBeta };
 }
 
 module.exports = {
