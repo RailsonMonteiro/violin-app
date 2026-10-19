@@ -76,6 +76,7 @@ const youtubeReferer = require("./main/youtubeReferer.js");
 const onlineVideo = require("./main/onlineVideo/index.js");
 const shortcuts = require("./main/shortcuts.js");
 const updater = require("./main/updater.js");
+const updateChannel = require("./main/updateChannel.js");
 const powerBlocker = require("./main/powerBlocker.js");
 const fileOpen = require("./main/fileOpen.js");
 const splash = require("./main/splash.js");
@@ -1010,15 +1011,20 @@ function createWindow() {
     // Lê as opções da tela Atualizações (persistidas em user_data).
     // O check ao iniciar NÃO roda aqui — o renderer (Shell.vue) dispara o
     // check no boot para poder mostrar o dialog quando encontrar versão nova.
-    let ud = {};
-    try {
-      ud = userStore.read("user_data") || {};
-    } catch (_) { /* userStore indisponível no boot */ }
-    const opts = (ud && ud.options) || {};
-    // TODO: remover o default true abaixo quando a versão estável for publicada.
-    // "Usar versões beta" fica ativo por padrão durante o ciclo de preview.
-    const useBeta = opts.use_beta_updates == null ? true : opts.use_beta_updates;
-    console.info("[main] updater.init → isPackaged:", app.isPackaged, "| options:", JSON.stringify(opts));
+    const opts = _userDataMain?.options || {};
+    // Pré-versões: padrão ligado numa beta, desligado numa estável, e desligado de
+    // novo ao chegar numa estável vindo de uma beta (updateChannel.js).
+    const { useBeta, persist } = updateChannel.resolveUseBeta({
+      currentVersion: app.getVersion(),
+      lastRunVersion: updateChannel.readLastRunVersion(paths.bootstrapDir()),
+      saved: opts.use_beta_updates,
+    });
+    if (persist) {
+      _walkSet(_userDataMain, "options.use_beta_updates", useBeta);
+      void _persistUserDataFromMain("options.use_beta_updates").catch(() => {});
+    }
+    updateChannel.writeLastRunVersion(paths.bootstrapDir(), app.getVersion());
+    console.info("[main] updater.init → isPackaged:", app.isPackaged, "| useBeta:", useBeta, "| options:", JSON.stringify(opts));
     updater.init({
       channel: "latest",
       autoCheck: false,
