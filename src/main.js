@@ -1,3 +1,4 @@
+import "@/bootstrap/compat";
 import { getRendererProfile } from "@/bootstrap/rendererProfile";
 
 const profile = getRendererProfile(window.location);
