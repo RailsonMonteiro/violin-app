@@ -217,6 +217,27 @@ describe("migração do formato antigo (registro agregado)", () => {
     expect(estado.tabela.has("authorized_devices")).toBe(false);
   });
 
+  it("aparelho aprovado antes da permissão de atalhos a herda; o novo não", async () => {
+    gravaAgregado([
+      device({ id: "d1", permissions: ["music"] }),
+      device({ id: "d2", permissions: ["liturgy", "chat"], registeredAt: "2026-01-02T00:00:00.000Z" }),
+      device({ id: "d3", permissions: ["root"], registeredAt: "2026-01-03T00:00:00.000Z" }),
+    ]);
+    semear(device({ id: "d5", permissions: ["music"], registeredAt: "2026-01-05T00:00:00.000Z" }));
+
+    const d = await boot();
+    const perms = Object.fromEntries(d.devices.value.map((x) => [x.id, x.permissions]));
+
+    expect(perms).toEqual({
+      d1: ["music", "keyboard"],
+      d2: ["liturgy", "chat", "keyboard"],
+      d3: ["root"],
+      d5: ["music"],
+    });
+    expect(estado.tabela.get("d1")?.permissions).toEqual(["music", "keyboard"]);
+    expect(estado.salvosMain.at(-1)?.find((x) => x.id === "d2")?.permissions).toContain("keyboard");
+  });
+
   it("não roda de novo na próxima leitura (idempotente)", async () => {
     gravaAgregado([device({ id: "d1" })]);
     await boot();

@@ -58,6 +58,19 @@ function _ehAutorizado(device: Device): boolean {
   return device.status !== "pending";
 }
 
+/**
+ * Até a beta.17, todo aparelho aprovado usava o módulo Atalhos do app; a
+ * permissão `keyboard` passou a ser exigida depois. Quem vem do formato antigo
+ * a herda, para os atalhos não pararem no meio de um culto ao atualizar. O
+ * operador pode tirá-la depois, e aparelho novo começa sem ela.
+ */
+function _comAtalhosHerdados(device: Device): Device {
+  const perms = device.permissions || [];
+  if (!_ehAutorizado(device) || !perms.length) return device;
+  if (perms.includes("root") || perms.includes("keyboard")) return device;
+  return { ...device, permissions: [...perms, "keyboard"] };
+}
+
 /** Mais antigo primeiro; sem data vai para o começo. */
 function _porRegistro(a: Device, b: Device): number {
   return String(a.registeredAt || "").localeCompare(String(b.registeredAt || ""));
@@ -84,7 +97,7 @@ async function _lerDispositivos(): Promise<Device[]> {
   const rows = await $idb.getAll<RegistroAgregado | Device>(DB_TABLE.DEVICES);
   const agregados = rows.filter(_ehRegistroAgregado);
   const dasLinhas = rows.filter((row) => !_ehRegistroAgregado(row)) as Device[];
-  const doAgregado = agregados.flatMap((linha) => linha.devices as Device[]);
+  const doAgregado = agregados.flatMap((linha) => (linha.devices as Device[]).map(_comAtalhosHerdados));
   const todos = [...dasLinhas, ...doAgregado];
 
   if (agregados.length) {
