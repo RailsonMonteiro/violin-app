@@ -75,7 +75,8 @@ function _normalizeLiturgyItem(raw: unknown): LiturgyItem | null {
 function _parseIniSections(text: string): Record<string, Record<string, string>> {
   const sections: Record<string, Record<string, string>> = {};
   let current: Record<string, string> | null = null;
-  for (const rawLine of text.split(/\r?\n/)) {
+  // Quem decodificar o arquivo sem tirar o BOM não pode perder a primeira seção.
+  for (const rawLine of text.replace(/^\uFEFF/, "").split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
     const sectionMatch = line.match(/^\[(.+)\]$/);
@@ -145,9 +146,8 @@ function _jaFallbackName(firstItem: LiturgyItem | undefined, index: number): str
 }
 
 /**
- * Faz o parse de um `liturgia.ja` (formato Delphi, INI em Windows-1252 — o
- * chamador precisa decodificar o arquivo com esse charset antes de passar o
- * texto aqui). Um `.ja` pode conter mais de uma liturgia salva: a seção
+ * Faz o parse de um `liturgia.ja` (formato Delphi, INI; o chamador decodifica
+ * o arquivo com `decodeJaText`, que trata Windows-1252 e UTF-8 com BOM). Um `.ja` pode conter mais de uma liturgia salva: a seção
  * `[Geral]` lista uma chave numérica por liturgia, cujo valor é a ordem dos
  * itens (`item_id;item_id;...`). O nome de cada uma vem do primeiro item do
  * tipo "categoria" no grupo, quando existir.

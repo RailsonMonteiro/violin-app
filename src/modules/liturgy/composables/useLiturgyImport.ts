@@ -1,5 +1,6 @@
 import { useLiturgyI18n } from "../i18n";
 import { parseJaImport, type useLiturgyLibrary } from "./useLiturgyLibrary";
+import { decodeJaText } from "../jaText";
 import { useBusy } from "@/composables/useBusy";
 import $alert from "@/helpers/Alert";
 import $snackbar from "@/helpers/Snackbar";
@@ -82,17 +83,21 @@ export function useLiturgyImport(library: Library, report: Report) {
     }
   }
 
-  // O `.ja` do Delphi é INI em Windows-1252, não UTF-8 — decodificar como texto
-  // simples trocaria todo acento por lixo (`Ã§Ã£o` em vez de `ção`).
+  // O `.ja` do Delphi é INI em Windows-1252 até a v26.6 e UTF-8 com BOM depois:
+  // `decodeJaText` escolhe como o próprio clássico escolhe.
   async function importJa(file: File): Promise<Notice> {
     const properties = telemetryProperties(file, "ja");
     Telemetry.track("liturgy_import_started", properties);
     try {
       const buffer = await file.arrayBuffer();
-      const text = new TextDecoder("windows-1252").decode(buffer);
+      const { text, encoding } = decodeJaText(buffer);
       const parsed = parseJaImport(text);
       if (!parsed || parsed.length === 0) {
-        Telemetry.track("liturgy_import_failed", { ...properties, reason: "invalid_format" });
+        Telemetry.track("liturgy_import_failed", {
+          ...properties,
+          encoding,
+          reason: "invalid_format",
+        });
         return invalid;
       }
       // Um `.ja` pode trazer várias liturgias salvas juntas (ex.: culto e escola
@@ -103,6 +108,7 @@ export function useLiturgyImport(library: Library, report: Report) {
       }
       Telemetry.track("liturgy_import_completed", {
         ...properties,
+        encoding,
         liturgy_count: parsed.length,
         item_count: parsed.reduce((total, liturgy) => total + liturgy.items.length, 0),
       });

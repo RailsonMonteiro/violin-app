@@ -50,9 +50,33 @@ item=Escola Sabatina
 cor=$0000CCFF
 `;
 
+/** O que o clássico grava da v26.7 em diante: UTF-8 com BOM e linha em branco após cada seção. */
+const JA_V26_7 = [
+  "[Geral]",
+  "1=item_a;item_b;",
+  "",
+  "[item_a]",
+  "tipo=categoria",
+  "item=Culto Divino — Oração",
+  "cor=$0000CCFF",
+  "",
+  "[item_b]",
+  "tipo=arquivo",
+  "item=19h00: Vídeo de abertura",
+  "cor=$000099FF",
+  "subtipo=arq",
+  "dir=C:\\Users\\João\\Vídeos\\abertura.mp4",
+  "dir_info=E",
+  "",
+].join("\r\n");
+
 /** Um arquivo do seletor, com só o que o import usa. */
-function file(name: string, content: string): File {
-  const bytes = Uint8Array.from(Buffer.from(content, "latin1"));
+function file(name: string, content: string, encoding: "latin1" | "utf8-bom" = "latin1"): File {
+  const bytes = Uint8Array.from(
+    encoding === "utf8-bom"
+      ? Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(content, "utf8")])
+      : Buffer.from(content, "latin1")
+  );
   return {
     name,
     size: bytes.length,
@@ -280,6 +304,40 @@ describe("useLiturgyImport — arquivo .ja do Delphi", () => {
     expect(track).toHaveBeenCalledWith(
       "liturgy_import_completed",
       expect.objectContaining({ liturgy_count: 2, format: "ja" })
+    );
+  });
+
+  it("arquivo do clássico v26.7+ (UTF-8 com BOM) entra com nome, acentos e caminhos certos", async () => {
+    const { importFile } = setup();
+    const done = importFile(file("liturgia.ja", JA_V26_7, "utf8-bom"));
+    await vi.advanceTimersByTimeAsync(500);
+    await done;
+
+    expect(error).not.toHaveBeenCalled();
+    expect(save).toHaveBeenCalledOnce();
+    const saved = save.mock.calls[0][0] as { name: string; items: Array<Record<string, unknown>> };
+    expect(saved.name).toBe("Culto Divino — Oração");
+    expect(saved.items.map((i) => i.item)).toEqual(["Culto Divino — Oração", "19h00: Vídeo de abertura"]);
+    expect(JSON.stringify(saved.items[1])).toContain("João");
+    expect(track).toHaveBeenCalledWith(
+      "liturgy_import_completed",
+      expect.objectContaining({ format: "ja", encoding: "utf8-bom", liturgy_count: 1 })
+    );
+  });
+
+  it("no formato antigo (Windows-1252), os acentos continuam certos", async () => {
+    const { importFile } = setup();
+    // Sem o travessão: o `latin1` do Node não o representa (no Windows-1252 real é 0x97).
+    const antigo = JA_V26_7.replace(/\r\n\r\n/g, "\r\n").replace("—", "-");
+    const done = importFile(file("liturgia.ja", antigo));
+    await vi.advanceTimersByTimeAsync(500);
+    await done;
+
+    expect(save).toHaveBeenCalledOnce();
+    expect((save.mock.calls[0][0] as { name: string }).name).toBe("Culto Divino - Oração");
+    expect(track).toHaveBeenCalledWith(
+      "liturgy_import_completed",
+      expect.objectContaining({ encoding: "cp1252" })
     );
   });
 
