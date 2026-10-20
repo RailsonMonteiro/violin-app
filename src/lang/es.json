@@ -850,7 +850,8 @@
       "controls": "Controles de Anuncios",
       "stop_projection": "Finalizar Proyección",
       "projection_closed": "Proyección de anuncios finalizada",
-      "executed": "{name} ejecutado"
+      "executed": "{name} ejecutado",
+      "project": "Proyectar"
     },
     "shortcuts": {
       "nav_group": "Navegación",

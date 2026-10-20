@@ -851,7 +851,8 @@
       "controls": "Controles de Anúncios",
       "stop_projection": "Encerrar Projeção",
       "projection_closed": "Projeção de anúncios encerrada",
-      "executed": "{name} executado"
+      "executed": "{name} executado",
+      "project": "Projetar"
     },
     "shortcuts": {
       "nav_group": "Navegação",
