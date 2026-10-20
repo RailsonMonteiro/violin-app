@@ -2676,13 +2676,14 @@ ipcMain.handle("storage:chooseFile", async (event, kind) => {
     properties: ["openFile"],
     title: "Selecionar arquivo",
     // A Biblioteca de Mídia só guarda estes tipos; sem o filtro o operador
-    // escolhia um áudio e o arquivo era descartado.
+    // escolhia um áudio e o arquivo era descartado. Áudio passou a ser aceito
+    // (espelha IMAGE_EXT/AUDIO_EXT/VIDEO_EXT + pdf de constants/FileTypes.ts).
     ...(kind === "media"
       ? {
           filters: [
             {
-              name: "Imagens, vídeos e PDF",
-              extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp", "svg", "heic", "heif", "mp4", "webm", "mkv", "mov", "avi", "m4v", "pdf"],
+              name: "Imagens, áudios, vídeos e PDF",
+              extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp", "svg", "heic", "heif", "mp3", "wav", "ogg", "flac", "aac", "m4a", "wma", "opus", "mp4", "webm", "mkv", "mov", "avi", "m4v", "pdf"],
             },
             { name: "Todos os arquivos", extensions: ["*"] },
           ],

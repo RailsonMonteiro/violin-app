@@ -1318,9 +1318,12 @@ function register(app, ctx) {
   const MEDIA_LIBRARY_MAX_BYTES = 8 * 1024 * 1024;
   const MEDIA_LIBRARY_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
   const MEDIA_LIBRARY_UPLOAD_MAX_BYTES = 300 * 1024 * 1024;
-  // Espelha IMAGE_EXT/VIDEO_EXT do desktop (constants/FileTypes.ts) + pdf.
+  // Espelha IMAGE_EXT/AUDIO_EXT/VIDEO_EXT do desktop (constants/FileTypes.ts)
+  // + pdf. Áudio entra aqui porque a biblioteca passou a aceitá-lo: sem isso, o
+  // celular receberia "extensão não suportada" para um tipo que o desktop aceita.
   const MEDIA_LIBRARY_EXT = [
     "jpg", "jpeg", "png", "webp", "gif", "bmp", "svg", "heic", "heif",
+    "mp3", "wav", "ogg", "flac", "aac", "m4a", "wma", "opus",
     "mp4", "webm", "mkv", "mov", "avi", "m4v",
     "pdf",
   ];
@@ -1340,6 +1343,7 @@ function register(app, ctx) {
   function mediaLibraryType(ext) {
     if (ext === "pdf") return "pdf";
     if (["mp4", "webm", "mkv", "mov", "avi", "m4v"].includes(ext)) return "video";
+    if (["mp3", "wav", "ogg", "flac", "aac", "m4a", "wma", "opus"].includes(ext)) return "audio";
     return "image";
   }
 

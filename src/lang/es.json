@@ -912,6 +912,7 @@
       "uploaded": "Archivo enviado al escritorio",
       "type_image": "Imagen",
       "type_video": "Vídeo",
+      "type_audio": "Audio",
       "type_pdf": "PDF",
       "playlist_play": "Reproducir",
       "playlist_stop": "Detener",

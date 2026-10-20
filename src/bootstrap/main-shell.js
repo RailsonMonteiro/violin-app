@@ -963,6 +963,23 @@ $storage.hydrate().then(async () => {
       return Platform.isDesktop ? Path.local(raw) : Path.file(raw);
     }
 
+    /**
+     * Áudio pedido pelo celular: toca no PLAYER DE MÍDIA do desktop, minimizado.
+     *
+     * O mesmo caminho da Biblioteca (e da liturgia): a janela não abre, e o que
+     * estiver no telão continua lá. Não há aviso para o módulo da Biblioteca —
+     * ele não mantém mais estado de áudio.
+     */
+    async function tocarAudioDoRemoto(url, item) {
+      await Media.openAudio({
+        url,
+        title: String(item?.name || ""),
+        mediaType: "audio",
+        minimized: true,
+        preserveFileProjection: true,
+      });
+    }
+
     /** Miniatura que o cliente remoto consegue carregar (caminho, não bytes). */
     function mediaLibraryRemoteThumb(item) {
       const thumb = typeof item?.thumb === "string" ? item.thumb : "";
@@ -1146,6 +1163,13 @@ $storage.hydrate().then(async () => {
             const url = mediaLibraryItemUrl(rec);
             if (!url) {
               fail("Arquivo indisponível para projeção");
+              break;
+            }
+            /* Áudio não tem o que projetar: toca no player e o telão fica
+             * como está (o mesmo caminho do clique no desktop). */
+            if (rec.type === "audio") {
+              await tocarAudioDoRemoto(url, rec);
+              respond({ status: "ok" });
               break;
             }
             await Media.projectFile({
@@ -1426,6 +1450,11 @@ $storage.hydrate().then(async () => {
                 await Media.close(true);
                 await Media.closeProjectionStage();
                 await ProjectionWindows.openSiteWindow(url, "canva");
+                remoteMediaPlaylistIndex = target;
+                break;
+              }
+              if (item.type === "audio") {
+                await tocarAudioDoRemoto(url, item);
                 remoteMediaPlaylistIndex = target;
                 break;
               }
