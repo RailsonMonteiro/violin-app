@@ -1087,6 +1087,29 @@ $storage.hydrate().then(async () => {
               Promise.resolve(api.cachedPdfs()).catch(() => ({})),
             ]);
             if (!resultado?.ok) {
+              const code = resultado?.code || "";
+              // Sem Client ID/Secret ou sem conta conectada não é um "502
+              // genérico": a aba do app precisa dizer o que falta configurar.
+              // `available:false` + `reason` mantém o HTTP 200 (sem toast de
+              // erro) e a mensagem certa no lugar do gateway.
+              if (code === "no_credentials" || code === "not_connected") {
+                let hasCredentials = false;
+                try {
+                  const estado = await api.status();
+                  hasCredentials = estado?.hasCredentials === true;
+                } catch {
+                  /* status é só informativo */
+                }
+                respond({
+                  status: "ok",
+                  available: false,
+                  reason: hasCredentials ? "not_connected" : "no_credentials",
+                  items: [],
+                  continuation: null,
+                  cached: {},
+                });
+                break;
+              }
               respond({
                 status: "error",
                 error: clip(resultado?.message, 300) || "Falha ao listar o Canva",
